@@ -3,6 +3,23 @@ import XCTest
 /// UI-20…UI-27：灯效与配置页（板载配置档、草稿编辑、写入键盘）。
 @MainActor
 final class ConfigurationUITests: CherryUITestCase {
+    /// 写入中继续编辑并再次提交，控件保持可用，最后一批写完才清除状态。
+    func testSlowSaveAllowsEditingAndQueuedSubmission() {
+        launch("slow")
+        openSection("灯效与配置")
+        wait(for: "config.effect.2", timeout: 15)
+        element("config.brightness").radioButtons["低"].click()
+        element("savebar.save").click()
+        waitForText("savebar.status", contains: "正在配置键盘")
+        XCTAssertTrue(element("config.effect.2").isEnabled)
+        element("config.effect.2").click()
+        XCTAssertTrue(element("savebar.save").isEnabled)
+        element("savebar.save").click()
+        waitForDisappearance(element("savebar.status"), timeout: 20)
+        element("config.reload").click()
+        waitForText("profile.summary.1", contains: "呼吸 · 低", timeout: 15)
+    }
+
     private func openConfiguration() {
         launch()
         openSection("灯效与配置")

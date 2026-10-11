@@ -16,6 +16,7 @@ struct CompositionRoot {
     private let access: any InputMonitoringPort
     private let inspector: KeyboardInspector
     private let configurator: KeyboardConfigurator
+    private let configurationWriter: KeyboardConfigurationWriter
     private let presets: PresetLibrary
     private let firmware: FirmwareUpdateService
     /// Set in simulation mode only.
@@ -56,6 +57,7 @@ struct CompositionRoot {
         let channels = ExclusiveChannelProvider(base: channelBase, diagnostics: diagnostics)
         inspector = KeyboardInspector(channels: channels, diagnostics: diagnostics)
         configurator = KeyboardConfigurator(channels: channels, diagnostics: diagnostics)
+        configurationWriter = KeyboardConfigurationWriter(configurator: configurator)
         presets = PresetLibrary(store: FileProfilePresetStore(directory: presetDirectory, diagnostics: diagnostics))
         firmware = FirmwareUpdateService(catalog: CachedFirmwareCatalog(base: catalog), downloader: catalog, channels: channels, discovery: discovery, diagnostics: diagnostics)
     }
@@ -67,6 +69,7 @@ struct CompositionRoot {
         let access = access
         let inspector = inspector
         let configurator = configurator
+        let configurationWriter = configurationWriter
         let presets = presets
         let firmware = firmware
         let simulation = simulation
@@ -74,15 +77,32 @@ struct CompositionRoot {
 
         dependencies.keyboardClient = KeyboardClient(
             keyboards: { await discovery.keyboards() },
-            updates: { discovery.keyboardUpdates() },
+            updates: {
+                AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+                    let task = Task {
+                        for await list in discovery.keyboardUpdates() {
+                            guard !Task.isCancelled else { break }
+                            await configurationWriter.keyboardsUpdated(list)
+                            continuation.yield(list)
+                        }
+                        continuation.finish()
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                }
+            },
             vendorSnapshot: { try await inspector.vendorSnapshot(of: $0) },
             battery: { try await inspector.battery(of: $0) },
             firmwareStatus: { try await inspector.firmwareStatus(of: $0) }
         )
         dependencies.configurationClient = ConfigurationClient(
             configuration: { try await configurator.configuration(of: $0) },
-            activateProfile: { try await configurator.activateProfile($0, on: $1) },
-            updateProfile: { try await configurator.update(profile: $0, on: $1, patch: $2) }
+            activateProfile: { try await configurationWriter.apply(.activate($0), on: $1) },
+            updateProfile: { profile, keyboard, patch in
+                let saved = try await configurationWriter.apply(.update(profile, patch: patch), on: keyboard)
+                guard let config = saved.profile(profile) else { throw CherryError.writeNotApplied("配置档读回缺失") }
+                return config
+            },
+            applyIntent: { try await configurationWriter.apply($0, on: $1) }
         )
         dependencies.presetClient = PresetClient(
             presets: { try await presets.presets() },

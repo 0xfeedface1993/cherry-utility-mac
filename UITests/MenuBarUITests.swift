@@ -95,4 +95,48 @@ final class MenuBarUITests: CherryUITestCase {
         element("menubar.refresh").click()
         waitForText("menubar.battery", contains: "95%")
     }
+
+    /// 同型号双设备可区分，写入第二台后切回第一台，配置互不影响。
+    func testPanelSwitchesBetweenTwoIndependentDevices() {
+        launch("dual")
+        openMenuBarPanel()
+        waitForText("menubar.battery", contains: "95%")
+        selectMenuBarDevice("03200000")
+        waitForText("menubar.battery", contains: "53%")
+        element("menubar.profile").radioButtons["1"].click()
+        waitForText("menubar.summary", contains: "配置 1 · 放射")
+        waitForDisappearance(element("menubar.configuring"))
+        selectMenuBarDevice("03100000")
+        waitForText("menubar.battery", contains: "95%")
+        waitForText("menubar.summary", contains: "配置 2 · 波纹")
+    }
+
+    /// 慢写期间仍可切换 profile 和灯效；最新意图稳定显示，最终落到正确的 profile。
+    func testSlowWritesKeepProfileAndLightingControlsEnabled() {
+        launch("slow")
+        openMenuBarPanel()
+        waitForText("menubar.summary", contains: "配置 2 · 波纹", timeout: 15)
+        let profiles = element("menubar.profile")
+        profiles.radioButtons["1"].click()
+        wait(for: "menubar.configuring")
+        XCTAssertTrue(profiles.radioButtons["3"].isEnabled)
+        XCTAssertTrue(element("menubar.effect.2").isEnabled)
+        profiles.radioButtons["3"].click()
+        element("menubar.effect.2").click()
+        waitForText("menubar.summary", contains: "配置 3 · 呼吸")
+        XCTAssertTrue(element("menubar.brightness").isEnabled)
+        waitForDisappearance(element("menubar.configuring"), timeout: 20)
+        element("menubar.refresh").click()
+        waitForText("menubar.summary", contains: "配置 3 · 呼吸", timeout: 15)
+    }
+
+    private func selectMenuBarDevice(_ location: String) {
+        let picker = element("menubar.devicePicker")
+        picker.click()
+        // 原生 PopUpButton 的选项在 AX 树中是 title，菜单打开时 isHittable 也不可靠。
+        // dual 场景按 KeyboardID 排序，使用已验证的菜单层级和顺序，切换后的独立状态另行断言。
+        let option = picker.menuItems.element(boundBy: location == "03100000" ? 0 : 1)
+        XCTAssertTrue(option.waitForExistence(timeout: 5), "设备选项 \(location) 应显示")
+        option.click()
+    }
 }

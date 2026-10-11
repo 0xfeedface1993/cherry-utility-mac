@@ -11,6 +11,10 @@ final class HotPlugUITests: CherryUITestCase {
         wait(for: "detail.disconnected")
         openMenuBarPanel()
         wait(for: "menubar.empty")
+        XCTAssertFalse(element("menubar.refresh").isEnabled)
+        XCTAssertFalse(element("menubar.profile").exists)
+        XCTAssertFalse(element("menubar.effect.2").exists)
+        XCTAssertTrue(element("sidebar.disconnectedKeyboard").exists)
         closeMenuBarPanel()
 
         choose(menu: "模拟设备", item: "插入键盘")

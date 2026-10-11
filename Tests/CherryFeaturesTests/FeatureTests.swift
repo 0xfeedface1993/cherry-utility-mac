@@ -101,6 +101,7 @@ struct DeviceInfoFeatureTests {
             $0.vendor = .loading
             $0.firmware = .loading
             $0.latestRelease = .loading
+            $0.loadGeneration = 1
         }
         // The vendor/firmware and catalog effects run concurrently; assert the settled state.
         await store.finish()

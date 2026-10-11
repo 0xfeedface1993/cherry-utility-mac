@@ -9,10 +9,12 @@ public struct CherryFirmwareCatalog: FirmwareCatalogPort, FirmwareDownloadPort {
 
     private let session: URLSession
     private let cacheDirectory: URL
+    private let diagnostics: Diagnostics
 
-    public init(session: URLSession = .shared, cacheDirectory: URL) {
+    public init(session: URLSession = .shared, cacheDirectory: URL, diagnostics: Diagnostics = .noop) {
         self.session = session
         self.cacheDirectory = cacheDirectory
+        self.diagnostics = diagnostics
     }
 
     private struct Response: Decodable {
@@ -31,10 +33,12 @@ public struct CherryFirmwareCatalog: FirmwareCatalogPort, FirmwareDownloadPort {
     }
 
     public func releases() async throws -> [FirmwareRelease] {
-        let data = try await get(Self.listURL)
+        let data = try await diagnostics.measure(.catalogFetch, origin: .firmware) { try await get(Self.listURL) }
         let response: Response
         do {
-            response = try JSONDecoder().decode(Response.self, from: data)
+            response = try diagnostics.measure(.catalogDecode, origin: .firmware, metrics: .init(bytes: UInt64(data.count))) {
+                try JSONDecoder().decode(Response.self, from: data)
+            }
         } catch {
             throw CherryError.network("固件目录格式无法解析")
         }
@@ -51,15 +55,15 @@ public struct CherryFirmwareCatalog: FirmwareCatalogPort, FirmwareDownloadPort {
 
     public func download(_ release: FirmwareRelease) async throws -> Data {
         let file = cacheDirectory.appendingPathComponent(release.downloadURL.lastPathComponent)
-        if let cached = try? Data(contentsOf: file), Self.md5(cached) == release.md5 {
+        if let cached = try? diagnostics.measure(.cacheRead, origin: .firmware, { try Data(contentsOf: file) }), Self.md5(cached) == release.md5 {
             return cached
         }
-        let data = try await get(release.downloadURL)
+        let data = try await diagnostics.measure(.firmwareDownload, origin: .firmware) { try await get(release.downloadURL) }
         guard Self.md5(data) == release.md5 else {
             throw CherryError.checksumMismatch("下载文件 MD5 与目录不一致")
         }
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-        try? data.write(to: file, options: .atomic)
+        try? diagnostics.measure(.cacheWrite, origin: .firmware, metrics: .init(bytes: UInt64(data.count))) { try data.write(to: file, options: .atomic) }
         return data
     }
 
@@ -73,6 +77,7 @@ public struct CherryFirmwareCatalog: FirmwareCatalogPort, FirmwareDownloadPort {
             }
             return data
         } catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
             // Domain errors and cancellation pass through untouched; transport errors become `.network`.
             if error is CherryError || error is CancellationError { throw error }
             throw CherryError.network(error.localizedDescription)

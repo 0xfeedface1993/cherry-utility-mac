@@ -5,11 +5,13 @@ public struct VendorSession: Sendable {
     public let channel: any HIDReportChannel
     public let reportID: UInt8
     public let replyTimeout: Duration
+    let diagnostics: Diagnostics
 
-    public init(channel: any HIDReportChannel, reportID: UInt8, replyTimeout: Duration = .seconds(2)) {
+    public init(channel: any HIDReportChannel, reportID: UInt8, replyTimeout: Duration = .seconds(2), diagnostics: Diagnostics = .noop) {
         self.channel = channel
         self.reportID = reportID
         self.replyTimeout = replyTimeout
+        self.diagnostics = diagnostics
     }
 
     // MARK: Reads
@@ -119,22 +121,33 @@ public struct VendorSession: Sendable {
     public func update(profile n: Int, with patch: ProfilePatch) async throws -> ProfileConfig {
         let current = try await profile(n)
         let target = current.applying(patch)
-        guard let range = current.changedRange(to: target) else { return current }
+        guard let range = current.changedRange(to: target) else {
+            diagnostics.emit(.configurationWrite, outcome: .noChange)
+            return current
+        }
         try await transaction {
             try await write(Array(target[range]), at: n * ProfileConfig.blockSize + range.lowerBound)
         }
-        return try await profile(n)
+        return try await diagnostics.measure(.configurationReadBack) { try await profile(n) }
     }
 
     // MARK: Exchange
 
     private func control(_ command: VendorCommand, honoringCancellation: Bool = true) async throws {
         let request = VendorPacket.control(command, reportID: reportID)
-        let reply = try await exchange(request, honoringCancellation: honoringCancellation)
-        try VendorPacket.checkStatus(of: reply, for: request)
+        try await diagnostics.measure(command == .beginConfig ? .configurationBegin : .configurationEnd) {
+            let reply = try await exchange(request, honoringCancellation: honoringCancellation)
+            try VendorPacket.checkStatus(of: reply, for: request)
+        }
     }
 
     private func exchange(_ request: [UInt8], honoringCancellation: Bool = true) async throws -> [UInt8] {
+        try await diagnostics.measure(.vendorExchange, metrics: .init(command: request.count > 3 ? request[3] : nil)) {
+            try await exchangeImpl(request, honoringCancellation: honoringCancellation)
+        }
+    }
+
+    private func exchangeImpl(_ request: [UInt8], honoringCancellation: Bool = true) async throws -> [UInt8] {
         await channel.discardPending()
         try await channel.send(request)
         let deadline = ContinuousClock.now + replyTimeout

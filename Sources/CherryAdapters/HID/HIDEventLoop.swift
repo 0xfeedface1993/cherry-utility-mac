@@ -1,3 +1,4 @@
+import CherryCore
 import CoreFoundation
 import Foundation
 
@@ -8,6 +9,7 @@ import Foundation
 /// and needs no locks. Created once by the composition root and kept for the app's lifetime.
 public final class HIDEventLoop: Sendable {
     private let thread: ThreadRef
+    let diagnostics: Diagnostics
     private let trampoline = Trampoline()
 
     /// Only used as a `perform(_:on:)` target and for identity checks, both safe from any thread.
@@ -24,7 +26,8 @@ public final class HIDEventLoop: Sendable {
         init(_ block: @escaping @Sendable () -> Void) { self.block = block }
     }
 
-    public init(name: String = "CherryKit.HID") {
+    public init(name: String = "CherryKit.HID", diagnostics: Diagnostics = .noop) {
+        self.diagnostics = diagnostics
         let thread = Thread {
             // A far-future timer keeps CFRunLoopRun from returning while no HID source is attached yet.
             let keepAlive = CFRunLoopTimerCreateWithHandler(nil, .greatestFiniteMagnitude, 0, 0, 0) { _ in }
@@ -41,7 +44,16 @@ public final class HIDEventLoop: Sendable {
 
     /// Enqueues `block` on the HID thread (FIFO).
     func execute(_ block: @escaping @Sendable () -> Void) {
-        trampoline.perform(#selector(Trampoline.run(_:)), on: thread.value, with: BlockBox(block), waitUntilDone: false)
+        let scheduled = diagnostics.begin(.hidSchedule)
+        let context = TraceContext.current
+        let diagnostics = self.diagnostics
+        let wrapped: @Sendable () -> Void = {
+            scheduled.finish()
+            TraceContext.$current.withValue(context) {
+                diagnostics.measure(.hidExecution) { block() }
+            }
+        }
+        trampoline.perform(#selector(Trampoline.run(_:)), on: thread.value, with: BlockBox(wrapped), waitUntilDone: false)
     }
 
     /// Runs `body` on the HID thread and returns its result.

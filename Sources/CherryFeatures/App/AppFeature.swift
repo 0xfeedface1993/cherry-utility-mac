@@ -9,6 +9,7 @@ public struct AppFeature: Sendable {
         public var keyboards: IdentifiedArrayOf<KeyboardSummary> = []
         public var detail: KeyboardFeature.State?
         public var menuBar = MenuBarFeature.State()
+        public var diagnostics = DiagnosticsFeature.State()
         /// `task` is sent both at launch (for the menu bar) and by the main window; only the first one starts work.
         public var hasStarted = false
 
@@ -23,6 +24,7 @@ public struct AppFeature: Sendable {
         case selectKeyboard(KeyboardID?)
         case detail(KeyboardFeature.Action)
         case menuBar(MenuBarFeature.Action)
+        case diagnostics(DiagnosticsFeature.Action)
     }
 
     @Dependency(\.keyboardClient) var keyboardClient
@@ -31,6 +33,7 @@ public struct AppFeature: Sendable {
 
     public var body: some ReducerOf<Self> {
         Scope(state: \.menuBar, action: \.menuBar) { MenuBarFeature() }
+        Scope(state: \.diagnostics, action: \.diagnostics) { DiagnosticsFeature() }
         Reduce { state, action in
             switch action {
             case .task:
@@ -61,21 +64,20 @@ public struct AppFeature: Sendable {
                 state.detail = id.flatMap { state.keyboards[id: $0] }.map(KeyboardFeature.State.init)
                 return .none
 
-            case .menuBar(.delegate(.configurationChanged(let id))):
-                // Changed from the status item: screens that already show this keyboard re-read it.
+            case .menuBar(.delegate(.configurationChanged(let id, let change))):
                 guard let detail = state.detail, detail.keyboard.id == id else { return .none }
                 return .merge(
-                    detail.configuration.configuration == .idle ? .none : .send(.detail(.configuration(.refresh))),
-                    detail.info.vendor == .idle ? .none : .send(.detail(.info(.refresh)))
+                    .send(.detail(.configuration(.configurationSynchronized(change)))),
+                    .send(.detail(.info(.configurationSynchronized(change))))
                 )
 
-            case .detail(.configuration(.delegate(.configurationChanged(let id)))):
+            case .detail(.configuration(.delegate(.configurationChanged(let id, let change)))):
                 return .merge(
-                    .send(.menuBar(.remoteConfigurationChanged(id))),
-                    state.detail?.info.vendor == .idle ? .none : .send(.detail(.info(.refresh)))
+                    .send(.menuBar(.configurationSynchronized(id, change))),
+                    .send(.detail(.info(.configurationSynchronized(change))))
                 )
 
-            case .detail, .menuBar:
+            case .detail, .menuBar, .diagnostics:
                 return .none
             }
         }

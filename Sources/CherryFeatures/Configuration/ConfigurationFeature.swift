@@ -38,6 +38,9 @@ public struct ConfigurationFeature: Sendable {
         public var isConnected = true
         public var configuration: Loadable<KeyboardConfiguration> = .idle
         /// Profile shown in the editor (not necessarily the active one).
+        var configurationRevision: UInt64 = 0
+        var loadGeneration: UInt64 = 0
+        var pendingProfiles: [Int: ProfileConfig] = [:]
         public var selectedProfile: Int?
         public var editor: ProfileEditor?
         public var activatingProfile: Int?
@@ -67,7 +70,8 @@ public struct ConfigurationFeature: Sendable {
         case binding(BindingAction<State>)
         case task
         case refresh
-        case configurationLoaded(Result<KeyboardConfiguration, any Error>)
+        case configurationLoaded(Result<KeyboardConfiguration, any Error>, revision: UInt64? = nil, generation: UInt64? = nil)
+        case configurationSynchronized(ConfigurationChange)
         case keyboardUpdated(KeyboardSummary?)
         case selectProfile(Int)
         case activateProfile(Int)
@@ -98,7 +102,7 @@ public struct ConfigurationFeature: Sendable {
 
         public enum Delegate: Equatable, Sendable {
             /// The keyboard's configuration was changed from this screen.
-            case configurationChanged(KeyboardID)
+            case configurationChanged(KeyboardID, ConfigurationChange)
         }
     }
 
@@ -124,19 +128,52 @@ public struct ConfigurationFeature: Sendable {
                     state.configuration = .failed(CherryError.unsupportedModel.userMessage)
                     return .none
                 }
-                if state.configuration.value == nil { state.configuration = .loading }
+                if state.configuration.value == nil {
+                    if !state.configuration.isLoading { state.pendingProfiles = [:] }
+                    state.configuration = .loading
+                }
                 let keyboard = state.keyboard
+                let revision = state.configurationRevision
+                state.loadGeneration &+= 1
+                let generation = state.loadGeneration
                 return .run { send in
-                    await send(.configurationLoaded(Result { try await client.configuration(keyboard) }))
+                    let result = await Result { try await client.configuration(keyboard) }
+                    guard !Task.isCancelled else { return }
+                    await send(.configurationLoaded(result, revision: revision, generation: generation))
                 }
                 .cancellable(id: CancelID.load, cancelInFlight: true)
 
-            case .configurationLoaded(.success(let configuration)):
-                state.configuration = .loaded(configuration)
+            case .configurationSynchronized(let change):
+                state.configurationRevision &+= 1
+                if let current = state.configuration.value {
+                    state.configuration = .loaded(change.applied(to: current))
+                    syncEditor(&state)
+                    return .cancel(id: CancelID.load)
+                }
+                if state.configuration.isLoading {
+                    switch change {
+                    case .profile(let profile): state.pendingProfiles[profile.profile] = profile
+                    case .configuration(let configuration):
+                        state.configuration = .loaded(configuration)
+                        state.pendingProfiles = [:]
+                        syncEditor(&state)
+                        return .cancel(id: CancelID.load)
+                    }
+                }
+                return .none
+
+            case .configurationLoaded(.success(let configuration), let revision, let generation):
+                guard generation == nil || generation == state.loadGeneration else { return .none }
+                guard state.isConnected, revision == nil || revision == state.configurationRevision || state.configuration.value == nil else { return .none }
+                let merged = state.pendingProfiles.values.reduce(configuration) { $0.replacing($1) }
+                state.pendingProfiles = [:]
+                state.configuration = .loaded(merged)
                 syncEditor(&state)
                 return .none
 
-            case .configurationLoaded(.failure(let error)):
+            case .configurationLoaded(.failure(let error), let revision, let generation):
+                guard generation == nil || generation == state.loadGeneration else { return .none }
+                guard state.isConnected, revision == nil || revision == state.configurationRevision || state.configuration.value == nil else { return .none }
                 // Keep showing the last good values; only a first load turns into an error screen.
                 if state.configuration.value == nil {
                     state.configuration = .failed(error.userMessage)
@@ -149,7 +186,11 @@ public struct ConfigurationFeature: Sendable {
                 let wasConnected = state.isConnected
                 state.isConnected = keyboard != nil
                 if let keyboard { state.keyboard = keyboard }
-                if !state.isConnected { return .cancel(id: CancelID.load) }
+                if !state.isConnected {
+                    state.loadGeneration &+= 1
+                    state.pendingProfiles = [:]
+                    return .cancel(id: CancelID.load)
+                }
                 return wasConnected ? .none : .send(.refresh)
 
             case .selectProfile(let n):
@@ -171,11 +212,12 @@ public struct ConfigurationFeature: Sendable {
                 .cancellable(id: CancelID.activate)
 
             case .activationFinished(.success(let configuration)):
+                state.configurationRevision &+= 1
                 state.activatingProfile = nil
                 state.configuration = .loaded(configuration)
                 syncEditor(&state)
                 state.banner = Banner(message: "已切换到配置 \(configuration.activeProfile + 1)", isError: false)
-                return .send(.delegate(.configurationChanged(state.keyboard.id)))
+                return .send(.delegate(.configurationChanged(state.keyboard.id, .configuration(configuration))))
 
             case .activationFinished(.failure(let error)):
                 state.activatingProfile = nil
@@ -197,6 +239,7 @@ public struct ConfigurationFeature: Sendable {
                 .cancellable(id: CancelID.save)
 
             case .saveFinished(.success(let saved)):
+                state.configurationRevision &+= 1
                 if let configuration = state.configuration.value {
                     state.configuration = .loaded(configuration.replacing(saved))
                 }
@@ -204,7 +247,7 @@ public struct ConfigurationFeature: Sendable {
                     state.editor?.saveSucceeded(saved.settings)
                 }
                 state.banner = Banner(message: "已写入配置 \(saved.profile + 1)", isError: false)
-                return .send(.delegate(.configurationChanged(state.keyboard.id)))
+                return .send(.delegate(.configurationChanged(state.keyboard.id, .profile(saved))))
 
             case .saveFinished(.failure(let error)):
                 state.editor?.saveFailed()

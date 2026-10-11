@@ -15,33 +15,64 @@ struct MenuBarBranchTests {
         return state
     }
 
-    @Test func rapidBrightnessRevertIsQueuedEvenBeforeFirstReadBack() async {
-        var state = Self.loadedState()
-        state.pendingWrites = 1 // 上一次亮度修改尚未读回，设备快照仍显示旧值。
-        let log = PatchLog()
-        let store = TestStore(initialState: state) { MenuBarFeature() } withDependencies: {
+    @Test func rapidRevertAndDifferentFieldsKeepOnlyOnePendingIntent() async throws {
+        let clock = TestClock(), log = PatchLog()
+        let store = TestStore(initialState: Self.loadedState()) { MenuBarFeature() } withDependencies: {
             $0.configurationClient.updateProfile = { n, _, patch in
                 log.append(n, patch)
+                try await clock.sleep(for: .seconds(1))
                 return try ProfileConfig(profile: n, raw: KeyboardConfiguration.preview.profile(n)!.applying(patch))
             }
         }
-        await store.send(.setBrightness(VendorSnapshot.preview.profile.brightness)) { $0.pendingWrites = 2 }
-        await store.receive(\.writeFinished) { $0.pendingWrites = 1 }
+        store.exhaustivity = .off
+        await store.send(.setBrightness(0))
+        await store.send(.setBrightness(1))
+        await store.send(.setSpeed(0))
+        await store.send(.setBrightness(VendorSnapshot.preview.profile.brightness))
+        #expect(store.state.pendingWrites == 2)
+        #expect(store.state.desiredSettings?.brightness == VendorSnapshot.preview.profile.brightness)
+        #expect(store.state.desiredSettings?.speed == 0)
+        await clock.advance(by: .seconds(1))
+        await store.receive(\.writeFinished)
         await store.receive(\.delegate)
-        #expect(log.all.count == 1 && log.all.first?.patch.fields == [.brightness])
+        await clock.advance(by: .seconds(1))
+        await store.receive(\.writeFinished)
+        await store.receive(\.delegate)
+        #expect(log.all.count == 2)
+        #expect(log.all.last?.patch.fields == [.brightness, .speed])
+        #expect(store.state.currentSnapshot?.profile.brightness == VendorSnapshot.preview.profile.brightness)
+        #expect(store.state.currentSnapshot?.profile.speed == 0)
+        #expect(store.state.pendingWrites == 0)
     }
 
     @Test func rapidProfileRevertIsQueuedBeforeFirstActivationCompletes() async throws {
-        var state = Self.loadedState()
-        state.pendingWrites = 1
-        let store = TestStore(initialState: state) { MenuBarFeature() } withDependencies: {
+        let clock = TestClock()
+        let store = TestStore(initialState: Self.loadedState()) { MenuBarFeature() } withDependencies: {
             $0.configurationClient.activateProfile = { n, _ in
-                try KeyboardConfiguration(activeProfile: n, profiles: KeyboardConfiguration.preview.profiles)
+                try await clock.sleep(for: .seconds(1))
+                return try KeyboardConfiguration(activeProfile: n, profiles: KeyboardConfiguration.preview.profiles)
             }
         }
-        await store.send(.activateProfile(KeyboardConfiguration.preview.activeProfile)) { $0.pendingWrites = 2 }
-        await store.receive(\.activationFinished) { $0.pendingWrites = 1 }
+        store.exhaustivity = .off
+        await store.send(.activateProfile(0))
+        await store.send(.activateProfile(2))
+        await store.send(.activateProfile(KeyboardConfiguration.preview.activeProfile))
+        #expect(store.state.pendingWrites == 2)
+        await clock.advance(by: .seconds(1))
+        await store.receive(\.activationFinished)
         await store.receive(\.delegate)
+        await clock.advance(by: .seconds(1))
+        await store.receive(\.activationFinished)
+        await store.receive(\.delegate)
+        #expect(store.state.currentSnapshot?.configuration.activeProfile == KeyboardConfiguration.preview.activeProfile)
+        #expect(store.state.pendingWrites == 0)
+    }
+
+    @Test func unchangedReadBackDoesNotBroadcast() async {
+        let store = TestStore(initialState: Self.loadedState()) { MenuBarFeature() }
+        await store.send(.writeFinished(KeyboardSummary.preview.id, .success(KeyboardConfiguration.preview.active))) {
+            $0.snapshotRevision = 1
+        }
     }
 
     @Test func oldKeyboardWriteFailureDoesNotChangeCurrentKeyboardError() async {
@@ -69,7 +100,7 @@ struct MenuBarBranchTests {
         let old = KeyboardID(vendorID: 0x046A, productID: 0x01E2, locationID: 2)
         let store = TestStore(initialState: state) { MenuBarFeature() }
         await store.send(.writeFinished(old, .success(KeyboardConfiguration.preview.active))) { $0.pendingWrites = 0 }
-        await store.receive(\.delegate, .configurationChanged(old))
+        await store.receive(\.delegate, .configurationChanged(old, .profile(KeyboardConfiguration.preview.active)))
     }
 
     @Test func quickControlsWriteOnlyIntendedFields() async {

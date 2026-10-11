@@ -20,20 +20,28 @@ final class ReportMailbox: Sendable {
 
     static let capacity = 256
     private let state = Mutex(State())
+    private let diagnostics: Diagnostics
+    private let context: TraceContext?
+
+    init(diagnostics: Diagnostics = .noop, context: TraceContext? = TraceContext.current) {
+        self.diagnostics = diagnostics; self.context = context
+    }
 
     /// Producer side, called on the HID thread.
     func push(_ report: [UInt8]) {
-        let waiter: Waiter? = state.withLock { s in
-            guard !s.closed else { return nil }
+        let result: (Waiter?, UInt64, UInt64) = state.withLock { s in
+            guard !s.closed else { return (nil, 0, 0) }
             if let w = s.waiter {
                 s.waiter = nil
-                return w.continuation
+                return (w.continuation, 0, 0)
             }
             s.buffer.append(report)
-            if s.buffer.count > Self.capacity { s.buffer.removeFirst() }
-            return nil
+            let dropped: UInt64 = s.buffer.count > Self.capacity ? 1 : 0
+            if dropped > 0 { s.buffer.removeFirst() }
+            return (nil, dropped, UInt64(s.buffer.count))
         }
-        waiter?.resume(returning: report)
+        result.0?.resume(returning: report)
+        diagnostics.emit(.mailbox, context: context, metrics: .init(count: 1, dropped: result.1, peak: result.2))
     }
 
     func close() {
@@ -54,6 +62,15 @@ final class ReportMailbox: Sendable {
 
     /// Next report, nil on timeout, `CherryError.disconnected` once closed.
     func next(timeout: Duration) async throws -> [UInt8]? {
+        let span = diagnostics.begin(.mailbox, context: context)
+        do {
+            let result = try await nextImpl(timeout: timeout)
+            span.finish(result == nil ? .timeout : .success)
+            return result
+        } catch { span.finish(error: error); throw error }
+    }
+
+    private func nextImpl(timeout: Duration) async throws -> [UInt8]? {
         try await withThrowingTaskGroup(of: [UInt8]?.self) { group in
             group.addTask { try await self.waitNext() }
             group.addTask {

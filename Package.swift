@@ -13,12 +13,17 @@ let package = Package(
         .library(name: "CherryCore", targets: ["CherryCore"]),
         .library(name: "CherryAdapters", targets: ["CherryAdapters"]),
         .library(name: "CherryFeatures", targets: ["CherryFeatures"]),
+        .executable(name: "CherryProfiler", targets: ["CherryProfiler"]),
     ],
     dependencies: [
         .package(url: "https://github.com/pointfreeco/swift-composable-architecture", from: "1.26.0"),
     ],
     targets: [
         .target(name: "CherryCore"),
+        .executableTarget(name: "CherryProfiler", dependencies: [
+            "CherryCore", "CherryAdapters", "CherryFeatures",
+            .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
+        ]),
         .target(
             name: "CherryAdapters",
             dependencies: ["CherryCore"],

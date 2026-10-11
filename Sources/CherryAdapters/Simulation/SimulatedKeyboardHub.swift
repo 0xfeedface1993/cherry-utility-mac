@@ -74,10 +74,12 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     }
 
     public let scenario: Scenario
+    private let diagnostics: Diagnostics
     private let state: Mutex<State>
 
-    public init(scenario: Scenario = Scenario()) {
+    public init(scenario: Scenario = Scenario(), diagnostics: Diagnostics = .noop) {
         self.scenario = scenario
+        self.diagnostics = diagnostics
         state = Mutex(State(device: Device(
             attached: scenario.device != .none,
             releaseNumber: scenario.firmwareVersion,
@@ -140,7 +142,13 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     /// Delivers a key press/release as if the keyboard had sent it.
     public func inject(_ usage: HIDUsage, isDown: Bool, timestamp: UInt64 = DispatchTime.now().uptimeNanoseconds) {
         let keys = state.withLock { Array($0.keySubscribers.values) }
-        for key in keys { key.yield(KeyEvent(usage: usage, isDown: isDown, timestamp: timestamp)) }
+        let stamp = diagnostics.isEnabled() ? diagnostics.now() : nil
+        for key in keys {
+            let result = key.yield(KeyEvent(usage: usage, isDown: isDown, timestamp: timestamp, diagnosticTimestampNs: stamp))
+            let dropped: UInt64
+            if case .dropped = result { dropped = 1 } else { dropped = 0 }
+            diagnostics.emit(.keyStream, origin: .keytest, metrics: .init(count: 1, dropped: dropped))
+        }
     }
 
     /// Number of accepted `writeConfig` packets (for tests).

@@ -12,6 +12,10 @@ public struct DeviceInfoFeature: Sendable {
         public var firmware: Loadable<DeviceFirmwareStatus> = .idle
         public var latestRelease: Loadable<FirmwareRelease?> = .idle
         public var lastUpdated: Date?
+        public var refreshError: String?
+        var configurationRevision: UInt64 = 0
+        var loadGeneration: UInt64 = 0
+        var pendingConfiguration: [ConfigurationChange] = []
 
         public init(keyboard: KeyboardSummary) {
             self.keyboard = keyboard
@@ -31,10 +35,11 @@ public struct DeviceInfoFeature: Sendable {
         case task
         case refresh
         case batteryTick
-        case vendorLoaded(Result<VendorSnapshot, any Error>)
+        case vendorLoaded(Result<VendorSnapshot, any Error>, revision: UInt64? = nil, generation: UInt64? = nil)
+        case configurationSynchronized(ConfigurationChange)
         case batteryLoaded(Result<BatteryStatus, any Error>)
-        case firmwareLoaded(Result<DeviceFirmwareStatus, any Error>)
-        case releaseLoaded(Result<FirmwareRelease?, any Error>)
+        case firmwareLoaded(Result<DeviceFirmwareStatus, any Error>, keyboard: KeyboardID? = nil, generation: UInt64? = nil)
+        case releaseLoaded(Result<FirmwareRelease?, any Error>, keyboard: KeyboardID? = nil, generation: UInt64? = nil)
         case keyboardUpdated(KeyboardSummary?)
     }
 
@@ -46,6 +51,7 @@ public struct DeviceInfoFeature: Sendable {
     @Dependency(\.firmwareClient) var firmwareClient
     @Dependency(\.continuousClock) var clock
     @Dependency(\.date.now) var now
+    @Dependency(\.diagnostics) var diagnostics
 
     public init() {}
 
@@ -73,18 +79,36 @@ public struct DeviceInfoFeature: Sendable {
                     state.firmware = .failed(CherryError.unsupportedModel.userMessage)
                     return .none
                 }
-                state.vendor = .loading
-                state.firmware = .loading
+                if state.vendor.value == nil {
+                    if !state.vendor.isLoading { state.pendingConfiguration = [] }
+                    state.vendor = .loading
+                }
+                if state.firmware.value == nil { state.firmware = .loading }
+                state.refreshError = nil
+                let revision = state.configurationRevision
+                state.loadGeneration &+= 1
+                let generation = state.loadGeneration
                 if state.latestRelease.value == nil { state.latestRelease = .loading }
                 return .merge(
                     // Sequential: both channels are short-lived, and this keeps a single HID exchange in flight.
                     .run { send in
-                        await send(.vendorLoaded(Result { try await keyboardClient.vendorSnapshot(keyboard) }))
-                        await send(.firmwareLoaded(Result { try await keyboardClient.firmwareStatus(keyboard) }))
+                        let span = diagnostics.begin(.refresh, origin: .deviceInfo)
+                        await TraceContext.$current.withValue(span.context) {
+                            let vendor = await Result { try await keyboardClient.vendorSnapshot(keyboard) }
+                            let firmware = await Result { try await keyboardClient.firmwareStatus(keyboard) }
+                            if Task.isCancelled { span.finish(error: CancellationError()); return }
+                            if case .failure(let error) = vendor { span.finish(error: error) }
+                            else if case .failure(let error) = firmware { span.finish(error: error) }
+                            else { span.finish() }
+                            await send(.vendorLoaded(vendor, revision: revision, generation: generation))
+                            await send(.firmwareLoaded(firmware, keyboard: keyboard.id, generation: generation))
+                        }
                     }
                     .cancellable(id: CancelID.refresh, cancelInFlight: true),
                     .run { send in
-                        await send(.releaseLoaded(Result { try await firmwareClient.latestRelease(model) }))
+                        let result = await Result { try await firmwareClient.latestRelease(model) }
+                        guard !Task.isCancelled else { return }
+                        await send(.releaseLoaded(result, keyboard: keyboard.id, generation: generation))
                     }
                     .cancellable(id: CancelID.release, cancelInFlight: true)
                 )
@@ -94,14 +118,54 @@ public struct DeviceInfoFeature: Sendable {
                       state.vendor.value != nil else { return .none }
                 let keyboard = state.keyboard
                 return .run { send in
-                    await send(.batteryLoaded(Result { try await keyboardClient.battery(keyboard) }))
+                    let result = await Result { try await diagnostics.measure(.refresh, origin: .deviceInfo) {
+                        try await keyboardClient.battery(keyboard)
+                    } }
+                    guard !Task.isCancelled else { return }
+                    await send(.batteryLoaded(result))
                 }
                 .cancellable(id: CancelID.battery, cancelInFlight: true)
 
-            case .vendorLoaded(let result):
-                guard state.isConnected else { return .none }
-                state.vendor = Loadable(result)
-                state.lastUpdated = now
+            case .configurationSynchronized(let change):
+                state.configurationRevision &+= 1
+                if let current = state.vendor.value {
+                    state.vendor = .loaded(current.with(configuration: change.applied(to: current.configuration)))
+                } else if state.vendor.isLoading {
+                    // 首次读取仍提供电量 / 状态；仅以最新读回覆盖其配置部分。
+                    if case .configuration = change { state.pendingConfiguration = [change] }
+                    else {
+                        if case .profile(let profile) = change {
+                            state.pendingConfiguration.removeAll {
+                                if case .profile(let previous) = $0 { return previous.profile == profile.profile }
+                                return false
+                            }
+                        }
+                        state.pendingConfiguration.append(change)
+                    }
+                }
+                return .none
+
+            case .vendorLoaded(let result, let revision, let generation):
+                guard generation == nil || generation == state.loadGeneration else { return .none }
+                guard state.isConnected else { diagnostics.emit(.resultIgnored, origin: .deviceInfo, outcome: .ignored); return .none }
+                guard revision == nil || revision == state.configurationRevision || state.vendor.value == nil else {
+                    diagnostics.emit(.resultIgnored, origin: .deviceInfo, outcome: .ignored); return .none
+                }
+                switch result {
+                case .success(var snapshot):
+                    for change in state.pendingConfiguration {
+                        snapshot = snapshot.with(configuration: change.applied(to: snapshot.configuration))
+                    }
+                    state.pendingConfiguration = []
+                    state.vendor = .loaded(snapshot)
+                    state.lastUpdated = now
+                    state.refreshError = nil
+                    diagnostics.emit(.resultApplied, origin: .deviceInfo, outcome: .success)
+                case .failure(let error):
+                    if state.vendor.value == nil { state.vendor = .failed(error.userMessage) }
+                    state.refreshError = error.userMessage
+                    diagnostics.emit(.resultApplied, origin: .deviceInfo, outcome: .failed)
+                }
                 return .none
 
             case .batteryLoaded(.success(let battery)):
@@ -116,12 +180,17 @@ public struct DeviceInfoFeature: Sendable {
                 // A missed poll is not worth surfacing; the next tick or a manual refresh will retry.
                 return .none
 
-            case .firmwareLoaded(let result):
-                guard state.isConnected else { return .none }
+            case .firmwareLoaded(let result, let keyboard, let generation):
+                guard generation == nil || generation == state.loadGeneration else { return .none }
+                guard state.isConnected, keyboard == nil || keyboard == state.keyboard.id else { return .none }
+                if case .failure = result, state.firmware.value != nil { return .none }
                 state.firmware = Loadable(result)
                 return .none
 
-            case .releaseLoaded(let result):
+            case .releaseLoaded(let result, let keyboard, let generation):
+                guard generation == nil || generation == state.loadGeneration else { return .none }
+                guard state.isConnected, keyboard == nil || keyboard == state.keyboard.id else { return .none }
+                if case .failure = result, state.latestRelease.value != nil { return .none }
                 state.latestRelease = Loadable(result)
                 return .none
 
@@ -130,7 +199,10 @@ public struct DeviceInfoFeature: Sendable {
                 state.isConnected = keyboard != nil
                 if let keyboard { state.keyboard = keyboard }
                 if !state.isConnected {
-                    return .merge(.cancel(id: CancelID.refresh), .cancel(id: CancelID.battery))
+                    state.configurationRevision &+= 1
+                    state.loadGeneration &+= 1
+                    state.pendingConfiguration = []
+                    return .merge(.cancel(id: CancelID.refresh), .cancel(id: CancelID.battery), .cancel(id: CancelID.release))
                 }
                 return wasConnected ? .none : .send(.refresh)
             }

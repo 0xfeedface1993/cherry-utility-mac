@@ -30,7 +30,7 @@ struct BranchTests {
         var state = DeviceInfoFeature.State(keyboard: .preview)
         state.vendor = .loaded(.preview)
         let store = TestStore(initialState: state) { DeviceInfoFeature() }
-        await store.send(.keyboardUpdated(nil)) { $0.isConnected = false }
+        await store.send(.keyboardUpdated(nil)) { $0.isConnected = false; $0.configurationRevision += 1; $0.loadGeneration += 1 }
         await store.send(.batteryLoaded(.success(try BatteryStatus(raw: [20, 0]))))
     }
 
@@ -74,7 +74,7 @@ struct BranchTests {
             $0.keyboardClient.battery = { _ in try await Task.never() }
         }
         await store.send(.batteryTick)
-        await store.send(.keyboardUpdated(nil)) { $0.isConnected = false }
+        await store.send(.keyboardUpdated(nil)) { $0.isConnected = false; $0.configurationRevision += 1; $0.loadGeneration += 1 }
         await store.finish()
     }
 

@@ -14,6 +14,7 @@ public final class IOKitHIDService: KeyboardDiscoveryPort, ReportChannelProvider
     public init(loop: HIDEventLoop, vendorID: UInt16 = KeyboardModel.cherryVendorID) {
         self.loop = loop
         let state = LoopState()
+        state.diagnostics = loop.diagnostics
         self.state = state
         loop.execute { state.start(loop: loop, vendorID: vendorID) }
     }
@@ -59,7 +60,7 @@ public final class IOKitHIDService: KeyboardDiscoveryPort, ReportChannelProvider
     public func keyEvents(keyboard: KeyboardID) -> AsyncThrowingStream<KeyEvent, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: KeyEvent.self, bufferingPolicy: .bufferingNewest(512))
         let state = self.state
-        let subscription = KeyEventSubscription(continuation: continuation)
+        let subscription = KeyEventSubscription(continuation: continuation, diagnostics: loop.diagnostics)
         loop.execute { subscription.start(keyboard: keyboard, state: state) }
         continuation.onTermination = { [loop] _ in
             loop.execute { subscription.stop() }
@@ -72,6 +73,7 @@ public final class IOKitHIDService: KeyboardDiscoveryPort, ReportChannelProvider
 
 /// Mutable HID state. Every member is accessed exclusively on the HID thread.
 final class LoopState: @unchecked Sendable {
+    var diagnostics: Diagnostics = .noop
     var manager: IOHIDManager?
     var devices: [UInt64: IOHIDDevice] = [:]
     var subscribers: [UUID: AsyncStream<[KeyboardSummary]>.Continuation] = [:]
@@ -177,7 +179,11 @@ final class LoopState: @unchecked Sendable {
 
     func publish() {
         let list = summaries()
-        for continuation in subscribers.values { continuation.yield(list) }
+        var dropped: UInt64 = 0
+        for continuation in subscribers.values {
+            if case .dropped = continuation.yield(list) { dropped += 1 }
+        }
+        diagnostics.emit(.discovery, metrics: .init(count: UInt64(list.count), dropped: dropped))
     }
 
     func summaries() -> [KeyboardSummary] {

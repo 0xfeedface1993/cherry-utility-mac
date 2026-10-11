@@ -83,6 +83,11 @@ struct CatalogTests {
         #expect(CherryFirmwareCatalog.secureURL(value) == nil)
     }
 
+    @Test func urlSessionCancellationRetainsCancellationMeaning() async throws {
+        let fixture = try HTTPFixture { _ in throw URLError(.cancelled) }
+        await #expect(throws: CancellationError.self) { try await fixture.client.releases() }
+    }
+
     @Test func catalogErrorsAndHTTPFailureAreSurfaced() async throws {
         for body in [Data("invalid".utf8), Data("{\"code\":7,\"data\":[]}".utf8)] {
             let fixture = try HTTPFixture { _ in (200, body) }

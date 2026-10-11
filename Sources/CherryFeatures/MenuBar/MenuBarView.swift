@@ -22,6 +22,7 @@ struct MenuBarLightingPresentation: Equatable {
     let color: LEDColor
     let randomColor: Bool
     let isEnabled: Bool
+    let isProfileEnabled: Bool
 
     struct ProfileChip: Equatable, Identifiable {
         let id: Int
@@ -60,17 +61,18 @@ extension MenuBarFeature.State {
 
     var lightingPresentation: MenuBarLightingPresentation? {
         guard let model, let snapshot = currentSnapshot else { return nil }
-        let active = snapshot.configuration.active
+        let active = desiredSettings ?? snapshot.configuration.active.settings
         return MenuBarLightingPresentation(
             profiles: (0..<model.profileCount).map { .init(id: $0, title: "\($0 + 1)", isActive: $0 == snapshot.configuration.activeProfile) },
             effects: model.lightingEffects.map {
-                EffectOption(id: $0.rawValue, name: $0.name, symbol: $0.symbol, isSelected: $0.rawValue == active.lightingEffect)
+                EffectOption(id: $0.rawValue, name: $0.name, symbol: $0.symbol, isSelected: $0.rawValue == active.effect)
             },
             brightness: min(active.brightness, 4),
             speed: active.speed,
             color: active.color,
             randomColor: active.randomColor,
-            isEnabled: !isApplying
+            isEnabled: !isActivating,
+            isProfileEnabled: !isApplying
         )
     }
 
@@ -109,11 +111,13 @@ public struct MenuBarPanel: View {
     let store: StoreOf<MenuBarFeature>
     let onOpenMainWindow: @MainActor () -> Void
     let onQuit: @MainActor () -> Void
+    let onOpenDiagnostics: @MainActor () -> Void
 
-    public init(store: StoreOf<MenuBarFeature>, onOpenMainWindow: @escaping @MainActor () -> Void, onQuit: @escaping @MainActor () -> Void) {
+    public init(store: StoreOf<MenuBarFeature>, onOpenMainWindow: @escaping @MainActor () -> Void, onQuit: @escaping @MainActor () -> Void, onOpenDiagnostics: @escaping @MainActor () -> Void = {}) {
         self.store = store
         self.onOpenMainWindow = onOpenMainWindow
         self.onQuit = onQuit
+        self.onOpenDiagnostics = onOpenDiagnostics
     }
 
     public var body: some View {
@@ -126,7 +130,7 @@ public struct MenuBarPanel: View {
                 .accessibilityIdentifier("menubar.devicePicker")
             }
             if let status = store.statusPresentation {
-                StatusHeader(presentation: status, isLoading: store.snapshot.isLoading || store.isApplying)
+                StatusHeader(presentation: status, isLoading: store.snapshot.isLoading || store.isActivating)
                 Divider()
                 if let lighting = store.lightingPresentation {
                     QuickLightingControls(
@@ -162,7 +166,8 @@ public struct MenuBarPanel: View {
                 canRefresh: store.keyboard != nil,
                 onRefresh: { store.send(.refresh) },
                 onOpenMainWindow: onOpenMainWindow,
-                onQuit: onQuit
+                onQuit: onQuit,
+                onOpenDiagnostics: onOpenDiagnostics
             )
         }
         .padding(14)
@@ -231,6 +236,7 @@ struct QuickLightingControls: View {
                 .labelsHidden()
                 .frame(width: 150)
                 .accessibilityIdentifier("menubar.profile")
+                .disabled(!presentation.isProfileEnabled)
             }
             Text("灯效").font(.subheadline.weight(.medium))
             EffectGrid(options: presentation.effects, columns: 4, compact: true, idPrefix: "menubar.effect", isEnabled: presentation.isEnabled, onSelect: onEffect)
@@ -247,7 +253,6 @@ struct QuickLightingControls: View {
                 isEnabled: presentation.isEnabled, onColor: onColor, onRandom: { if $0 { onRandom() } }
             )
         }
-        .disabled(!presentation.isEnabled)
     }
 }
 
@@ -291,6 +296,7 @@ struct PanelFooter: View {
     let onRefresh: @MainActor () -> Void
     let onOpenMainWindow: @MainActor () -> Void
     let onQuit: @MainActor () -> Void
+    let onOpenDiagnostics: @MainActor () -> Void
 
     var body: some View {
         HStack {
@@ -302,6 +308,8 @@ struct PanelFooter: View {
                 .disabled(!canRefresh)
                 .accessibilityLabel("刷新")
                 .accessibilityIdentifier("menubar.refresh")
+            Button("诊断", action: onOpenDiagnostics)
+                .accessibilityIdentifier("menubar.diagnostics")
             Button(action: onQuit) { Image(systemName: "power") }
                 .help("退出")
                 .accessibilityLabel("退出")

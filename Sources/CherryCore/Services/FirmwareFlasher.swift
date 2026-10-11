@@ -20,11 +20,13 @@ public struct FirmwareFlasher: Sendable {
     public let channel: any HIDReportChannel
     public let otaProtocol: TelinkOTAProtocol
     public let timeouts: Timeouts
+    let diagnostics: Diagnostics
 
-    public init(channel: any HIDReportChannel, reportID: UInt8, timeouts: Timeouts = Timeouts()) throws {
+    public init(channel: any HIDReportChannel, reportID: UInt8, timeouts: Timeouts = Timeouts(), diagnostics: Diagnostics = .noop) throws {
         self.channel = channel
         self.otaProtocol = try TelinkOTAProtocol(reportID: reportID, reportLength: channel.outputReportLength)
         self.timeouts = timeouts
+        self.diagnostics = diagnostics
     }
 
     public func readFirmwareStatus() async throws -> DeviceFirmwareStatus {
@@ -45,21 +47,24 @@ public struct FirmwareFlasher: Sendable {
 
     /// Cancelling mid-transfer leaves the keyboard on its current firmware: the new image is only
     /// activated after the end command passes the device-side CRC check.
-    public func flash(
+    private func flashImpl(
         _ image: UpdaterImage,
         progress: @Sendable (FlashProgress) async -> Void
     ) async throws -> FlashOutcome {
         try Task.checkCancellation()
         try image.validate()
-        let (reports, percents) = otaProtocol.transferReports(firmware: image.firmware)
+        let (reports, percents) = diagnostics.measure(.otaReports, metrics: .init(bytes: UInt64(image.firmware.count))) { otaProtocol.transferReports(firmware: image.firmware) }
         let total = reports.count + 1
-        await progress(.started(totalReports: total))
+        await reportProgress(.started(totalReports: total), progress: progress)
 
         await channel.discardPending()
         try Task.checkCancellation()
-        try await channel.send(otaProtocol.startReport())
-        guard let startAck = try await nextAck(timeout: timeouts.start) else {
-            throw CherryError.timeout("设备未响应 OTA 开始命令（仍运行原固件，可安全重试）")
+        let startAck = try await diagnostics.measure(.otaStart) {
+            try await channel.send(otaProtocol.startReport())
+            guard let ack = try await nextAck(timeout: timeouts.start) else {
+                throw CherryError.timeout("设备未响应 OTA 开始命令（仍运行原固件，可安全重试）")
+            }
+            return ack
         }
         if let status = otaProtocol.parseResult(startAck) { return try outcome(status) }
 
@@ -74,11 +79,20 @@ public struct FirmwareFlasher: Sendable {
             if let status = otaProtocol.parseResult(ack) { return try outcome(status) }
             if percents[i] != lastPercent {
                 lastPercent = percents[i]
-                await progress(.transferred(reports: i + 2, totalReports: total, percent: percents[i]))
+                await reportProgress(.transferred(reports: i + 2, totalReports: total, percent: percents[i]), progress: progress)
             }
         }
 
-        await progress(.verifying)
+        await reportProgress(.verifying, progress: progress)
+        let resultSpan = diagnostics.begin(.otaResult)
+        do {
+            let result = try await readResult()
+            resultSpan.finish(DiagnosticOutcome(result))
+            return result
+        } catch { resultSpan.finish(error: error); throw error }
+    }
+
+    private func readResult() async throws -> FlashOutcome {
         let deadline = ContinuousClock.now + timeouts.result
         while true {
             try Task.checkCancellation()
@@ -98,7 +112,30 @@ public struct FirmwareFlasher: Sendable {
         return .confirmed
     }
 
+    public func flash(_ image: UpdaterImage, progress: @Sendable (FlashProgress) async -> Void) async throws -> FlashOutcome {
+        let span = diagnostics.begin(.otaTransfer, metrics: .init(bytes: UInt64(image.firmware.count)))
+        do {
+            let result = try await TraceContext.$current.withValue(span.context) { try await flashImpl(image, progress: progress) }
+            span.finish(DiagnosticOutcome(result))
+            return result
+        } catch { span.finish(error: error); throw error }
+    }
+
     private func nextAck(timeout: Duration) async throws -> [UInt8]? {
+        guard diagnostics.isEnabled() else { return try await nextAckImpl(timeout: timeout) }
+        let span = diagnostics.begin(.otaACK)
+        do {
+            let result = try await nextAckImpl(timeout: timeout)
+            span.finish(result == nil ? .timeout : .success)
+            return result
+        } catch { span.finish(error: error); throw error }
+    }
+
+    private func reportProgress(_ value: FlashProgress, progress: @Sendable (FlashProgress) async -> Void) async {
+        await diagnostics.measure(.otaProgress) { await progress(value) }
+    }
+
+    private func nextAckImpl(timeout: Duration) async throws -> [UInt8]? {
         let deadline = ContinuousClock.now + timeout
         while true {
             try Task.checkCancellation()

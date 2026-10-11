@@ -11,6 +11,10 @@ struct DeviceInfoView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 identity
+                if let error = store.refreshError {
+                    Text("刷新失败：" + error).font(.callout).foregroundStyle(.orange)
+                        .accessibilityIdentifier("info.refreshError")
+                }
                 if store.model != nil {
                     power
                     configuration

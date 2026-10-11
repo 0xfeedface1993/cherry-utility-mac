@@ -137,6 +137,12 @@ public struct ProfilePatch: Equatable, Sendable {
         return ProfilePatch(s, fields: [field])
     }
 
+    /// 合并尚未执行的意图：新意图只覆盖其声明的字段。
+    public func merging(_ newer: ProfilePatch) -> ProfilePatch {
+        guard let values else { return newer }
+        return ProfilePatch(newer.applied(to: values), fields: fields.union(newer.fields))
+    }
+
     public var isEmpty: Bool { fields.isEmpty }
 
     public func applied(to current: ProfileSettings) -> ProfileSettings {

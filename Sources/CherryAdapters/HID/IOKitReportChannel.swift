@@ -16,14 +16,15 @@ final class IOKitReportChannel: HIDReportChannel, Sendable {
         let device: IOHIDDevice
         let registryID: UInt64
         let state: LoopState
-        let mailbox = ReportMailbox()
+        let mailbox: ReportMailbox
         let removalToken = UUID()
         var isOpen = true
 
-        init(device: IOHIDDevice, state: LoopState) {
+        init(device: IOHIDDevice, state: LoopState, diagnostics: Diagnostics) {
             self.device = device
             self.registryID = HIDProperties.registryID(device)
             self.state = state
+            mailbox = ReportMailbox(diagnostics: diagnostics)
         }
 
         /// HID thread only. Idempotent.
@@ -59,7 +60,7 @@ final class IOKitReportChannel: HIDReportChannel, Sendable {
         if inputIDs.isEmpty { inputIDs = [reportID] }
 
         try state.acquireOpen(device)
-        let resources = Resources(device: device, state: state)
+        let resources = Resources(device: device, state: state, diagnostics: loop.diagnostics)
         let mailbox = resources.mailbox
         state.routeInputReports(of: device, token: resources.removalToken) { mailbox.push($0) }
         state.observeRemoval(of: registryID, token: resources.removalToken) { [resources] in
@@ -78,12 +79,14 @@ final class IOKitReportChannel: HIDReportChannel, Sendable {
         let resources = self.resources
         try await loop.run {
             guard resources.isOpen else { throw CherryError.disconnected }
-            let rc = report.withUnsafeBufferPointer {
-                IOHIDDeviceSetReport(resources.device, kIOHIDReportTypeOutput, CFIndex(report[0]), $0.baseAddress!, $0.count)
-            }
-            guard rc == kIOReturnSuccess else {
-                if rc == kIOReturnNotAttached || rc == kIOReturnNoDevice || rc == kIOReturnAborted { throw CherryError.disconnected }
-                throw CherryError.ioFailed(String(format: "IOHIDDeviceSetReport 0x%08X", UInt32(bitPattern: rc)))
+            try self.loop.diagnostics.measure(.hidSend, metrics: .init(bytes: UInt64(report.count))) {
+                let rc = report.withUnsafeBufferPointer {
+                    IOHIDDeviceSetReport(resources.device, kIOHIDReportTypeOutput, CFIndex(report[0]), $0.baseAddress!, $0.count)
+                }
+                guard rc == kIOReturnSuccess else {
+                    if rc == kIOReturnNotAttached || rc == kIOReturnNoDevice || rc == kIOReturnAborted { throw CherryError.disconnected }
+                    throw CherryError.ioFailed(String(format: "IOHIDDeviceSetReport 0x%08X", UInt32(bitPattern: rc)))
+                }
             }
         }
     }
@@ -107,6 +110,8 @@ final class IOKitReportChannel: HIDReportChannel, Sendable {
 final class KeyEventSubscription: @unchecked Sendable {
     // HID thread only, except `continuation` which is thread-safe.
     private let continuation: AsyncThrowingStream<KeyEvent, any Error>.Continuation
+    private let diagnostics: Diagnostics
+    private let capture: DiagnosticSpan
     private var devices: [IOHIDDevice] = []
     private var state: LoopState?
     private var tracker = KeyStateTracker()
@@ -118,8 +123,11 @@ final class KeyEventSubscription: @unchecked Sendable {
         return info
     }()
 
-    init(continuation: AsyncThrowingStream<KeyEvent, any Error>.Continuation) {
+    init(continuation: AsyncThrowingStream<KeyEvent, any Error>.Continuation, diagnostics: Diagnostics = .noop) {
         self.continuation = continuation
+        self.diagnostics = diagnostics
+        let context = diagnostics.isEnabled() ? TraceContext(origin: .keytest, deviceSessionID: UUID()) : nil
+        capture = diagnostics.begin(.keyCapture, context: context, origin: .keytest)
     }
 
     func start(keyboard: KeyboardID, state: LoopState) {
@@ -130,6 +138,7 @@ final class KeyEventSubscription: @unchecked Sendable {
             return decoder.fields.isEmpty ? nil : (device, decoder)
         }
         guard !targets.isEmpty else {
+            capture.finish(error: CherryError.deviceNotFound(keyboard))
             continuation.finish(throwing: CherryError.deviceNotFound(keyboard))
             return
         }
@@ -137,6 +146,7 @@ final class KeyEventSubscription: @unchecked Sendable {
             do {
                 try state.acquireOpen(device)
             } catch {
+                capture.finish(error: error)
                 stop()
                 continuation.finish(throwing: error)
                 return
@@ -149,6 +159,7 @@ final class KeyEventSubscription: @unchecked Sendable {
                 guard let self else { return }
                 let gone = HIDProperties.registryID(device)
                 self.devices.removeAll { HIDProperties.registryID($0) == gone }
+                self.capture.finish(.disconnected)
                 self.continuation.finish(throwing: CherryError.disconnected)
                 self.stop()
             }
@@ -156,16 +167,29 @@ final class KeyEventSubscription: @unchecked Sendable {
     }
 
     private func handle(_ report: [UInt8], decoder: HIDInputDecoder, interface: Int) {
+        let stamp = diagnostics.isEnabled() ? diagnostics.now() : nil
         guard let decoded = decoder.pressedUsages(in: report) else { return }
+        if let stamp {
+            let now = diagnostics.now()
+            diagnostics.emit(.keyDecode, context: capture.context, metrics: .init(durationNs: now >= stamp ? now - stamp : 0))
+        }
         let nanos = mach_absolute_time() * UInt64(Self.timebase.numer) / UInt64(Self.timebase.denom)
         let events = tracker.update(source: interface << 8 | Int(decoded.reportID), pressed: decoded.usages, timestamp: nanos)
-        for event in events { continuation.yield(event) }
+        for event in events {
+            let stamped = KeyEvent(usage: event.usage, isDown: event.isDown, timestamp: event.timestamp,
+                                   diagnosticTimestampNs: stamp, diagnosticContext: capture.context)
+            let result = continuation.yield(stamped)
+            let dropped: UInt64
+            if case .dropped = result { dropped = 1 } else { dropped = 0 }
+            diagnostics.emit(.keyStream, context: capture.context, metrics: .init(count: 1, dropped: dropped))
+        }
     }
 
     /// HID thread only. Idempotent.
     func stop() {
         guard !stopped else { return }
         stopped = true
+        capture.finish(.stopped)
         for device in devices {
             state?.routeInputReports(of: device, token: token, to: nil)
             state?.stopObservingRemoval(of: HIDProperties.registryID(device), token: token)

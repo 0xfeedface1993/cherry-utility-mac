@@ -68,6 +68,7 @@ public struct KeyTestFeature: Sendable {
     enum CancelID { case capture, suppress }
 
     @Dependency(\.keyTestClient) var client
+    @Dependency(\.diagnostics) var diagnostics
 
     public init() {}
 
@@ -103,8 +104,14 @@ public struct KeyTestFeature: Sendable {
                 let id = state.keyboard.id
                 return .merge(
                     .run { send in
+                        let diagnostics = diagnostics
                         for try await event in client.keyEvents(id) {
                             try Task.checkCancellation()
+                            if let stamp = event.diagnosticTimestampNs {
+                                let now = diagnostics.now()
+                                diagnostics.emit(.keyDispatch, context: event.diagnosticContext, origin: .keytest,
+                                                 metrics: .init(durationNs: now >= stamp ? now - stamp : 0))
+                            }
                             await send(.keyEvent(event))
                         }
                         await send(.captureEnded(nil))
@@ -132,6 +139,12 @@ public struct KeyTestFeature: Sendable {
                     at: 0
                 )
                 if state.log.count > State.logLimit { state.log.removeLast(state.log.count - State.logLimit) }
+                if let stamp = event.diagnosticTimestampNs {
+                    let diagnostics = diagnostics
+                    let now = diagnostics.now()
+                    diagnostics.emit(.keyPipeline, context: event.diagnosticContext, origin: .keytest,
+                                     metrics: .init(durationNs: now >= stamp ? now - stamp : 0))
+                }
                 return .none
 
             case .captureEnded(let message):

@@ -4,7 +4,8 @@ import IOKit.hid
 
 /// TCC "Input Monitoring" gate: macOS requires it before an app may open a keyboard interface.
 public struct InputMonitoringAccess: InputMonitoringPort {
-    public init() {}
+    private let diagnostics: Diagnostics
+    public init(diagnostics: Diagnostics = .noop) { self.diagnostics = diagnostics }
 
     public func status() -> InputMonitoringStatus {
         switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
@@ -15,6 +16,8 @@ public struct InputMonitoringAccess: InputMonitoringPort {
     }
 
     public func request() async -> Bool {
-        IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        let granted = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        diagnostics.emit(.permission, origin: .keytest, outcome: granted ? .success : .failed)
+        return granted
     }
 }

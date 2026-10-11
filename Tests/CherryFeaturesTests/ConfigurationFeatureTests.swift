@@ -102,7 +102,7 @@ struct ConfigurationFeatureTests {
             $0.presetClient.presets = { [.preview] }
         }
         await store.send(.task) { $0.presets = .loading }
-        await store.receive(\.refresh) { $0.configuration = .loading }
+        await store.receive(\.refresh) { $0.configuration = .loading; $0.loadGeneration = 1 }
         await store.receive(\.presetsLoaded) { $0.presets = .loaded([.preview]) }
         await store.receive(\.configurationLoaded) {
             $0.configuration = .loaded(.preview)
@@ -212,11 +212,12 @@ struct ConfigurationFeatureTests {
         }
         await store.send(.activateProfile(2)) { $0.activatingProfile = 2 }
         await store.receive(\.activationFinished) {
+            $0.configurationRevision += 1
             $0.activatingProfile = nil
             $0.configuration = .loaded(activated)
             $0.banner = .init(message: "已切换到配置 3", isError: false)
         }
-        await store.receive(\.delegate, .configurationChanged(KeyboardSummary.preview.id))
+        await store.receive(\.delegate, .configurationChanged(KeyboardSummary.preview.id, .configuration(activated)))
     }
 
     @Test func loadingPresetFillsDraftWithoutWriting() async {
@@ -270,7 +271,7 @@ struct MenuBarFeatureTests {
             $0.keyboardClient.vendorSnapshot = { _ in .preview }
             $0.date.now = Date(timeIntervalSince1970: 10)
         }
-        await store.send(.keyboardsUpdated([.preview])) { $0.keyboards = [.preview] }
+        await store.send(.keyboardsUpdated([.preview])) { $0.keyboards = [.preview]; $0.snapshotRevision += 1 }
         await store.receive(\.refresh) { $0.snapshot = .loading }
         await store.receive(\.snapshotLoaded) {
             $0.snapshot = .loaded(.preview)
@@ -298,7 +299,7 @@ struct MenuBarFeatureTests {
         store.exhaustivity = .off
         await store.send(.setBrightness(1)) { $0.pendingWrites = 1 }
         await store.receive(\.writeFinished) { $0.pendingWrites = 0 }
-        await store.receive(\.delegate, .configurationChanged(KeyboardSummary.preview.id))
+        await store.receive(\.delegate, .configurationChanged(KeyboardSummary.preview.id, .profile(store.state.currentSnapshot!.profile)))
         #expect(log.all.map(\.profile) == [1])
         #expect(log.all.first?.patch.fields == [.brightness])
         #expect(store.state.currentSnapshot?.profile.brightness == 1)
@@ -346,21 +347,26 @@ struct MenuBarFeatureTests {
 @MainActor
 @Suite("AppFeature menu-bar wiring")
 struct AppMenuBarWiringTests {
-    @Test func menuBarChangeRefreshesOpenScreensOfSameKeyboard() async {
+    @Test func menuBarReadBackSynchronizesWithoutIOAndPreservesDraft() async throws {
         var state = AppFeature.State()
         state.keyboards = [.preview]
         var detail = KeyboardFeature.State(keyboard: .preview)
         detail.configuration = ConfigurationFeatureTests.loadedState()
+        detail.configuration.editor?.edit { $0.brightness = 0 }
+        detail.info.vendor = .loaded(.preview)
         state.detail = detail
-        let store = TestStore(initialState: state) {
-            AppFeature()
-        } withDependencies: {
-            $0.configurationClient.configuration = { _ in .preview }
-        }
+        let saved = try ProfileConfig(profile: 1, raw: KeyboardConfiguration.preview.active.applying(
+            .set(\.speed, 0, field: .speed, on: KeyboardConfiguration.preview.active.settings)))
+        let store = TestStore(initialState: state) { AppFeature() }
         store.exhaustivity = .off
-        await store.send(.menuBar(.delegate(.configurationChanged(KeyboardSummary.preview.id))))
-        await store.receive(\.detail.configuration.refresh)
-        await store.receive(\.detail.configuration.configurationLoaded)
+        // 所有 I/O 依赖保留 TestDependency 未实现状态；出现读取即失败。
+        await store.send(.menuBar(.delegate(.configurationChanged(KeyboardSummary.preview.id, .profile(saved)))))
+        await store.finish()
+        await store.skipReceivedActions()
+        #expect(store.state.detail?.info.vendor.value?.profile.speed == 0)
+        #expect(store.state.detail?.configuration.editor?.draft.brightness == 0)
+        #expect(store.state.detail?.configuration.editor?.draft.speed == 0)
+        #expect(store.state.detail?.configuration.hasUnsavedChanges == true)
     }
 
     @Test func startIsIdempotent() async {

@@ -23,29 +23,31 @@ func withChannel<T: Sendable>(
 /// Application service behind the "device info" screen and the menu-bar status.
 public struct KeyboardInspector: Sendable {
     let channels: any ReportChannelProvider
+    let diagnostics: Diagnostics
 
-    public init(channels: any ReportChannelProvider) {
+    public init(channels: any ReportChannelProvider, diagnostics: Diagnostics = .noop) {
         self.channels = channels
+        self.diagnostics = diagnostics
     }
 
-    public func vendorSnapshot(of keyboard: KeyboardSummary) async throws -> VendorSnapshot {
+    func vendorSnapshotImpl(of keyboard: KeyboardSummary) async throws -> VendorSnapshot {
         let model = try supportedModel(keyboard)
         return try await withChannel(channels, keyboard: keyboard.id, usagePage: model.vendorUsagePage, reportID: model.vendorReportID) {
-            try await VendorSession(channel: $0, reportID: model.vendorReportID).snapshot(profileCount: model.profileCount)
+            try await VendorSession(channel: $0, reportID: model.vendorReportID, diagnostics: diagnostics).snapshot(profileCount: model.profileCount)
         }
     }
 
-    public func battery(of keyboard: KeyboardSummary) async throws -> BatteryStatus {
+    func batteryImpl(of keyboard: KeyboardSummary) async throws -> BatteryStatus {
         let model = try supportedModel(keyboard)
         return try await withChannel(channels, keyboard: keyboard.id, usagePage: model.vendorUsagePage, reportID: model.vendorReportID) {
-            try await VendorSession(channel: $0, reportID: model.vendorReportID).battery()
+            try await VendorSession(channel: $0, reportID: model.vendorReportID, diagnostics: diagnostics).battery()
         }
     }
 
-    public func firmwareStatus(of keyboard: KeyboardSummary) async throws -> DeviceFirmwareStatus {
+    func firmwareStatusImpl(of keyboard: KeyboardSummary) async throws -> DeviceFirmwareStatus {
         let model = try supportedModel(keyboard)
         return try await withChannel(channels, keyboard: keyboard.id, usagePage: model.otaUsagePage, reportID: model.otaReportID) {
-            try await FirmwareFlasher(channel: $0, reportID: model.otaReportID).readFirmwareStatus()
+            try await FirmwareFlasher(channel: $0, reportID: model.otaReportID, diagnostics: diagnostics).readFirmwareStatus()
         }
     }
 }
@@ -58,23 +60,25 @@ func supportedModel(_ keyboard: KeyboardSummary) throws -> KeyboardModel {
 /// Application service for changing the keyboard's onboard configuration: profile selection, lighting and sleep.
 public struct KeyboardConfigurator: Sendable {
     let channels: any ReportChannelProvider
+    let diagnostics: Diagnostics
 
-    public init(channels: any ReportChannelProvider) {
+    public init(channels: any ReportChannelProvider, diagnostics: Diagnostics = .noop) {
         self.channels = channels
+        self.diagnostics = diagnostics
     }
 
-    public func configuration(of keyboard: KeyboardSummary) async throws -> KeyboardConfiguration {
+    func configurationImpl(of keyboard: KeyboardSummary) async throws -> KeyboardConfiguration {
         let model = try supportedModel(keyboard)
         return try await session(keyboard, model) { try await $0.configuration(profileCount: model.profileCount) }
     }
 
     /// Activates profile `n` and returns the configuration read back from the keyboard.
-    public func activateProfile(_ n: Int, on keyboard: KeyboardSummary) async throws -> KeyboardConfiguration {
+    func activateProfileImpl(_ n: Int, on keyboard: KeyboardSummary) async throws -> KeyboardConfiguration {
         let model = try supportedModel(keyboard)
         try Self.validate(profile: n, model: model)
         return try await session(keyboard, model) { session in
             try await session.activateProfile(n)
-            let configuration = try await session.configuration(profileCount: model.profileCount)
+            let configuration = try await diagnostics.measure(.configurationReadBack) { try await session.configuration(profileCount: model.profileCount) }
             guard configuration.activeProfile == n else {
                 throw CherryError.writeNotApplied("键盘仍停留在配置 \(configuration.activeProfile + 1)")
             }
@@ -83,7 +87,7 @@ public struct KeyboardConfigurator: Sendable {
     }
 
     /// Changes only the patched fields of profile `n` and returns the block read back from the keyboard.
-    public func update(profile n: Int, on keyboard: KeyboardSummary, patch: ProfilePatch) async throws -> ProfileConfig {
+    func updateImpl(profile n: Int, on keyboard: KeyboardSummary, patch: ProfilePatch) async throws -> ProfileConfig {
         let model = try supportedModel(keyboard)
         try Self.validate(profile: n, model: model)
         if patch.fields.contains(.effect), let effect = patch.values?.effect, model.effect(effect) == nil {
@@ -110,7 +114,7 @@ public struct KeyboardConfigurator: Sendable {
         _ keyboard: KeyboardSummary, _ model: KeyboardModel, _ body: (VendorSession) async throws -> T
     ) async throws -> T {
         try await withChannel(channels, keyboard: keyboard.id, usagePage: model.vendorUsagePage, reportID: model.vendorReportID) {
-            try await body(VendorSession(channel: $0, reportID: model.vendorReportID))
+            try await body(VendorSession(channel: $0, reportID: model.vendorReportID, diagnostics: diagnostics))
         }
     }
 }
@@ -158,6 +162,7 @@ public struct FirmwareUpdateService: Sendable {
     let catalog: any FirmwareCatalogPort
     let downloader: any FirmwareDownloadPort
     let channels: any ReportChannelProvider
+    let diagnostics: Diagnostics
     let discovery: any KeyboardDiscoveryPort
     let timeouts: FirmwareFlasher.Timeouts
 
@@ -166,11 +171,13 @@ public struct FirmwareUpdateService: Sendable {
         downloader: any FirmwareDownloadPort,
         channels: any ReportChannelProvider,
         discovery: any KeyboardDiscoveryPort,
-        timeouts: FirmwareFlasher.Timeouts = .init()
+        timeouts: FirmwareFlasher.Timeouts = .init(),
+        diagnostics: Diagnostics = .noop
     ) {
         self.catalog = catalog
         self.downloader = downloader
         self.channels = channels
+        self.diagnostics = diagnostics
         self.discovery = discovery
         self.timeouts = timeouts
     }
@@ -187,19 +194,19 @@ public struct FirmwareUpdateService: Sendable {
             .max { ($0.version ?? FirmwareVersion(code: 0)) < ($1.version ?? FirmwareVersion(code: 0)) }
     }
 
-    public func download(_ release: FirmwareRelease) async throws -> FirmwarePackage {
+    func downloadImpl(_ release: FirmwareRelease) async throws -> FirmwarePackage {
         let data = try await downloader.download(release)
-        return try Self.makePackage(data: data, source: .catalog(release), expectedMD5: release.md5)
+        return try Self.makePackage(data: data, source: .catalog(release), expectedMD5: release.md5, diagnostics: diagnostics)
     }
 
     /// Verifies the file hash (when known), extracts the image and checks its CRC.
-    public static func makePackage(data: Data, source: FirmwarePackage.Source, expectedMD5: String? = nil) throws -> FirmwarePackage {
-        let md5 = Insecure.MD5.hash(data: data).map { String(format: "%02X", $0) }.joined()
+    public static func makePackage(data: Data, source: FirmwarePackage.Source, expectedMD5: String? = nil, diagnostics: Diagnostics = .noop) throws -> FirmwarePackage {
+        let md5 = diagnostics.measure(.firmwareMD5, metrics: .init(bytes: UInt64(data.count))) { Insecure.MD5.hash(data: data).map { String(format: "%02X", $0) }.joined() }
         if let expectedMD5, md5 != expectedMD5.uppercased() {
             throw CherryError.checksumMismatch("文件 MD5 \(md5) ≠ 目录值 \(expectedMD5.uppercased())")
         }
-        let image = try UpdaterImage(updaterExe: data)
-        try image.validate()
+        let image = try diagnostics.measure(.firmwareExtract, metrics: .init(bytes: UInt64(data.count))) { try UpdaterImage(updaterExe: data) }
+        try diagnostics.measure(.firmwareCRC) { try image.validate() }
         return FirmwarePackage(source: source, fileMD5: md5, image: image)
     }
 
@@ -219,14 +226,14 @@ public struct FirmwareUpdateService: Sendable {
         return problems
     }
 
-    public func deviceFirmware(keyboard: KeyboardID, package: FirmwarePackage) async throws -> DeviceFirmwareStatus {
+    func deviceFirmwareImpl(keyboard: KeyboardID, package: FirmwarePackage) async throws -> DeviceFirmwareStatus {
         let image = package.image
         return try await withChannel(channels, keyboard: keyboard, usagePage: image.usagePage, reportID: image.reportID) {
-            try await FirmwareFlasher(channel: $0, reportID: image.reportID, timeouts: timeouts).readFirmwareStatus()
+            try await FirmwareFlasher(channel: $0, reportID: image.reportID, timeouts: timeouts, diagnostics: diagnostics).readFirmwareStatus()
         }
     }
 
-    public func flash(
+    func flashImpl(
         keyboard: KeyboardSummary,
         package: FirmwarePackage,
         progress: @Sendable (FlashProgress) async -> Void
@@ -236,12 +243,12 @@ public struct FirmwareUpdateService: Sendable {
         let image = package.image
         let timeouts = self.timeouts
         return try await withChannel(channels, keyboard: keyboard.id, usagePage: image.usagePage, reportID: image.reportID) {
-            try await FirmwareFlasher(channel: $0, reportID: image.reportID, timeouts: timeouts).flash(image, progress: progress)
+            try await FirmwareFlasher(channel: $0, reportID: image.reportID, timeouts: timeouts, diagnostics: diagnostics).flash(image, progress: progress)
         }
     }
 
     /// Waits for the keyboard to come back after the OTA reboot and reads its firmware CRC.
-    public func verifyAfterFlash(
+    func verifyAfterFlashImpl(
         keyboard: KeyboardID,
         package: FirmwarePackage,
         timeout: Duration = .seconds(60),

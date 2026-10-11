@@ -65,6 +65,22 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: NO
         COMBINE_HIDPI_IMAGES: YES
+  CherryUtilityUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: UITests
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    dependencies:
+      - target: CherryUtility
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.local.cherry.utility.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: CherryUtility
+        ENABLE_HARDENED_RUNTIME: NO
 schemes:
   CherryUtility:
     build:
@@ -80,5 +96,6 @@ schemes:
         - package: CherryKit/CherryCoreTests
         - package: CherryKit/CherryAdaptersTests
         - package: CherryKit/CherryFeaturesTests
+        - CherryUtilityUITests
     archive:
       config: Release

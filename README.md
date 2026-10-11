@@ -42,6 +42,16 @@ xcodebuild -project CherryUtility.xcodeproj -scheme CherryUtility -skipMacroVali
 cd Packages/CherryKit && swift test
 ```
 
+### UI 测试与模拟模式
+
+`CherryUtilityUITests` 是 XCUITest 用例，覆盖启动导航、设备信息、灯效与配置、本地预设、菜单栏、按键测试、固件升级和热插拔，用例清单见 [Docs/UI测试用例.md](Docs/UI测试用例.md)。用例以环境变量 `CHERRY_SIMULATION=<场景>` 启动 App，场景有 `pixiu75`、`empty`、`unsupported`、`denied`、`wireless`。此时 App 连接的是内存里的模拟键盘：它实现了同样的 0xFF1C 私有协议和 Telink OTA 协议，支持热插拔和按键注入，所以不需要真键盘、输入监控权限或网络。模拟模式下菜单栏会多出「模拟设备」菜单，用于拔出和插入键盘。
+
+```bash
+xcodebuild -project CherryUtility.xcodeproj -scheme CherryUtility -skipMacroValidation test -only-testing:CherryUtilityUITests
+```
+
+想不接键盘体验界面，可以在 Xcode 的 Scheme → Run → Environment Variables 里加上 `CHERRY_SIMULATION=pixiu75`。
+
 ### 单元测试覆盖率
 
 `project.yml` 的 `CherryUtility` scheme 已启用 `gatherCoverageData`，包含 Core、Adapters、Features 三个测试 target。重新生成工程后，在 Xcode 中按 ⌘U，再到 Report Navigator 选择本次测试结果的 Coverage 查看覆盖率。

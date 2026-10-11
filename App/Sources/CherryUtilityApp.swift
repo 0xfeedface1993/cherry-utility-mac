@@ -9,9 +9,11 @@ struct CherryUtilityApp: App {
 
     @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @State private var store: StoreOf<AppFeature>
+    private let simulation: SimulationControls?
 
     init() {
         let root = CompositionRoot()
+        simulation = root.simulation
         let store = Store(initialState: AppFeature.State()) {
             AppFeature()
         } withDependencies: {
@@ -19,6 +21,7 @@ struct CherryUtilityApp: App {
         }
         // Device discovery and the status-item poll run for the app's lifetime, window or not.
         store.send(.task)
+        simulation?.keyInput.start()
         _store = State(initialValue: store)
     }
 
@@ -29,6 +32,7 @@ struct CherryUtilityApp: App {
         }
         .defaultSize(width: 1120, height: 800)
         .windowToolbarStyle(.unified)
+        .commands { SimulationCommands(controls: simulation) }
 
         MenuBarExtra {
             MenuBarContent(store: store.scope(state: \.menuBar, action: \.menuBar))

@@ -7,40 +7,68 @@ import Foundation
 
 /// The only place that knows about concrete adapters: builds them once and plugs core services
 /// into the feature clients.
+///
+/// Launched with `CHERRY_SIMULATION=<scenario>` (UI tests, demos) every driven adapter is replaced by the in-memory
+/// simulated keyboard, so the full core stack runs without hardware or Input Monitoring.
 struct CompositionRoot {
-    private let hid: IOKitHIDService
-    private let access = InputMonitoringAccess()
+    private let discovery: any KeyboardDiscoveryPort
+    private let keySource: any KeyEventSource
+    private let access: any InputMonitoringPort
     private let inspector: KeyboardInspector
     private let configurator: KeyboardConfigurator
     private let presets: PresetLibrary
     private let firmware: FirmwareUpdateService
+    /// Set in simulation mode only.
+    let simulation: SimulationControls?
 
-    init() {
-        let loop = HIDEventLoop()
-        let hid = IOKitHIDService(loop: loop)
+    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        let support = URL.applicationSupportDirectory.appending(path: "CherryUtility", directoryHint: .isDirectory)
+        let catalog: any FirmwareCatalogPort & FirmwareDownloadPort
+        let channelBase: any ReportChannelProvider
+        var presetDirectory = support.appending(path: "Presets", directoryHint: .isDirectory)
+
+        if let scenario = environment["CHERRY_SIMULATION"] {
+            let hub = SimulatedKeyboardHub(scenario: .named(scenario))
+            discovery = hub
+            keySource = hub
+            access = hub
+            channelBase = hub
+            catalog = SimulatedFirmwareCatalog()
+            presetDirectory = environment["CHERRY_PRESET_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+                ?? FileManager.default.temporaryDirectory.appending(path: "CherryUtility-Simulation-\(UUID().uuidString)", directoryHint: .isDirectory)
+            simulation = SimulationControls(hub: hub)
+        } else {
+            let hid = IOKitHIDService(loop: HIDEventLoop())
+            discovery = hid
+            keySource = hid
+            access = InputMonitoringAccess()
+            channelBase = hid
+            catalog = CherryFirmwareCatalog(cacheDirectory: support.appending(path: "Firmware", directoryHint: .isDirectory))
+            simulation = nil
+        }
+
         // One queue per keyboard interface: the status item, the open screens and the firmware tab take turns
         // instead of failing with "interface busy".
-        let channels = ExclusiveChannelProvider(base: hid)
-        let support = URL.applicationSupportDirectory.appending(path: "CherryUtility", directoryHint: .isDirectory)
-        let catalog = CherryFirmwareCatalog(cacheDirectory: support.appending(path: "Firmware", directoryHint: .isDirectory))
-        self.hid = hid
+        let channels = ExclusiveChannelProvider(base: channelBase)
         inspector = KeyboardInspector(channels: channels)
         configurator = KeyboardConfigurator(channels: channels)
-        presets = PresetLibrary(store: FileProfilePresetStore(directory: support.appending(path: "Presets", directoryHint: .isDirectory)))
-        firmware = FirmwareUpdateService(catalog: catalog, downloader: catalog, channels: channels, discovery: hid)
+        presets = PresetLibrary(store: FileProfilePresetStore(directory: presetDirectory))
+        firmware = FirmwareUpdateService(catalog: catalog, downloader: catalog, channels: channels, discovery: discovery)
     }
 
     func install(into dependencies: inout DependencyValues) {
-        let hid = hid
+        let discovery = discovery
+        let keySource = keySource
         let access = access
         let inspector = inspector
         let configurator = configurator
         let presets = presets
         let firmware = firmware
+        let simulation = simulation
 
         dependencies.keyboardClient = KeyboardClient(
-            keyboards: { await hid.keyboards() },
-            updates: { hid.keyboardUpdates() },
+            keyboards: { await discovery.keyboards() },
+            updates: { discovery.keyboardUpdates() },
             vendorSnapshot: { try await inspector.vendorSnapshot(of: $0) },
             battery: { try await inspector.battery(of: $0) },
             firmwareStatus: { try await inspector.firmwareStatus(of: $0) }
@@ -59,9 +87,17 @@ struct CompositionRoot {
         dependencies.keyTestClient = KeyTestClient(
             accessStatus: { access.status() },
             requestAccess: { await access.request() },
-            openAccessSettings: { await SystemSettings.openInputMonitoring() },
-            keyEvents: { hid.keyEvents(keyboard: $0) },
-            suppressAppKeyEvents: { await LocalKeySuppressor.suppressUntilCancelled() }
+            openAccessSettings: {
+                if simulation == nil { await SystemSettings.openInputMonitoring() }
+            },
+            keyEvents: { keySource.keyEvents(keyboard: $0) },
+            suppressAppKeyEvents: {
+                if let simulation {
+                    await simulation.keyInput.suppressUntilCancelled()
+                } else {
+                    await LocalKeySuppressor.suppressUntilCancelled()
+                }
+            }
         )
         dependencies.firmwareClient = FirmwareClient(
             latestRelease: { try await firmware.latestRelease(for: $0) },

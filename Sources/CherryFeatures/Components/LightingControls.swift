@@ -50,6 +50,8 @@ struct EffectGrid: View {
     let options: [EffectOption]
     var columns = 4
     var compact = false
+    /// Buttons are identified as `<idPrefix>.<raw value>`.
+    var idPrefix = "effect"
     let isEnabled: Bool
     let onSelect: @MainActor (UInt8) -> Void
 
@@ -81,7 +83,10 @@ struct EffectGrid: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(option.isSelected ? Color.accentColor : .primary)
+                .accessibilityLabel(option.name)
+                .accessibilityValue(option.isSelected ? "已选中" : "")
                 .accessibilityAddTraits(option.isSelected ? .isSelected : [])
+                .accessibilityIdentifier("\(idPrefix).\(option.id)")
             }
         }
         .disabled(!isEnabled)
@@ -91,6 +96,7 @@ struct EffectGrid: View {
 
 struct BrightnessPicker: View {
     let value: Int
+    var id = "brightness"
     let isEnabled: Bool
     let onChange: @MainActor (Int) -> Void
 
@@ -101,11 +107,13 @@ struct BrightnessPicker: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .disabled(!isEnabled)
+        .accessibilityIdentifier(id)
     }
 }
 
 struct SpeedSlider: View {
     let value: Int
+    var id = "speed"
     let isEnabled: Bool
     let onChange: @MainActor (Int) -> Void
 
@@ -116,6 +124,7 @@ struct SpeedSlider: View {
                 value: Binding(get: { Double(value) }, set: { onChange(Int($0.rounded())) }),
                 in: 0...4, step: 1
             )
+            .accessibilityIdentifier(id)
             Image(systemName: "hare").foregroundStyle(.secondary)
         }
         .disabled(!isEnabled)
@@ -127,6 +136,8 @@ struct ColorChooser: View {
     let color: LEDColor
     let randomColor: Bool
     var showsPicker = true
+    /// Swatches are `<idPrefix>.swatch.RRGGBB`, plus `<idPrefix>.random` and `<idPrefix>.summary`.
+    var idPrefix = "color"
     let isEnabled: Bool
     let onColor: @MainActor (LEDColor) -> Void
     let onRandom: @MainActor (Bool) -> Void
@@ -144,6 +155,9 @@ struct ColorChooser: View {
                 }
                 .buttonStyle(.plain)
                 .help("随机颜色")
+                .accessibilityLabel("随机颜色")
+                .accessibilityValue(randomColor ? "已选中" : "")
+                .accessibilityIdentifier("\(idPrefix).random")
                 Divider().frame(height: 16)
                 ForEach(LEDColor.palette, id: \.self) { swatch in
                     Button {
@@ -157,6 +171,9 @@ struct ColorChooser: View {
                     }
                     .buttonStyle(.plain)
                     .help(swatch.description)
+                    .accessibilityLabel(swatch.description)
+                    .accessibilityValue(!randomColor && swatch == color ? "已选中" : "")
+                    .accessibilityIdentifier("\(idPrefix).swatch.\(swatch.description.dropFirst())")
                 }
                 if showsPicker {
                     ColorPicker(
@@ -166,11 +183,13 @@ struct ColorChooser: View {
                     )
                     .labelsHidden()
                     .help("自定义颜色")
+                    .accessibilityIdentifier("\(idPrefix).picker")
                 }
             }
             Text(randomColor ? "随机颜色" : "固定颜色 \(color.description)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .accessibilityIdentifier("\(idPrefix).summary")
         }
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.5)
@@ -182,6 +201,13 @@ struct BatteryBadge: View {
     let isCharging: Bool
 
     var body: some View {
+        content
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(percent.map { "电量 \($0)%" + (isCharging ? "，充电中" : "") } ?? "电量未知")
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let percent {
             Label {
                 Text("\(percent)%").monospacedDigit()

@@ -28,6 +28,7 @@ struct ConfigurationView: View {
                     Label("重新读取", systemImage: "arrow.clockwise")
                 }
                 .disabled(!store.isConnected || store.isBusy)
+                .accessibilityIdentifier("config.reload")
                 .help("从键盘重新读取配置")
             }
         }
@@ -52,6 +53,7 @@ struct ConfigurationView: View {
         switch store.configuration {
         case .idle, .loading:
             ProgressView("正在读取键盘配置…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("config.loading")
         case .failed(let message):
             ContentUnavailableView {
                 Label("无法读取配置", systemImage: "exclamationmark.triangle")
@@ -60,6 +62,7 @@ struct ConfigurationView: View {
             } actions: {
                 Button("重试") { store.send(.refresh) }.disabled(!store.isConnected)
             }
+            .accessibilityIdentifier("config.failed")
         case .loaded:
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -112,11 +115,13 @@ struct ProfileTabsView: View {
                             Spacer()
                             if item.isActive {
                                 Text("当前").font(.caption.bold())
+                                    .accessibilityIdentifier("profile.current.\(item.id)")
                                     .padding(.horizontal, 6).padding(.vertical, 2)
                                     .background(Color.green.opacity(0.2), in: Capsule())
                             }
                         }
                         Text(item.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            .accessibilityIdentifier("profile.summary.\(item.id)")
                         HStack {
                             if item.isActivating {
                                 ProgressView().controlSize(.small)
@@ -124,6 +129,7 @@ struct ProfileTabsView: View {
                                 Button("设为当前") { onActivate(item.id) }
                                     .controlSize(.small)
                                     .disabled(!presentation.isEnabled)
+                                    .accessibilityIdentifier("profile.activate.\(item.id)")
                             }
                             Spacer()
                         }
@@ -141,8 +147,11 @@ struct ProfileTabsView: View {
                     )
                     .contentShape(Rectangle())
                     .onTapGesture { if presentation.isEnabled { onSelect(item.id) } }
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(item.title)
+                    .accessibilityValue(item.isSelected ? "编辑中" : "")
                     .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("profile.card.\(item.id)")
                 }
             }
             .padding(6)
@@ -165,30 +174,33 @@ struct LightingEditor: View {
                 if presentation.isEffectDirty {
                     Label("灯效已修改，尚未写入键盘", systemImage: "circle.fill")
                         .font(.caption).foregroundStyle(.orange).labelStyle(.titleAndIcon).imageScale(.small)
+                        .accessibilityIdentifier("config.effect.dirty")
                 }
-                EffectGrid(options: presentation.effects, columns: 6, isEnabled: presentation.isEnabled) { onEdit(.effect($0)) }
+                EffectGrid(options: presentation.effects, columns: 6, idPrefix: "config.effect", isEnabled: presentation.isEnabled) { onEdit(.effect($0)) }
                 if presentation.isCustomEffect {
                     Label("「自定义」使用键盘里保存的逐键颜色，本工具暂不编辑逐键颜色。", systemImage: "info.circle")
                         .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("config.effect.customHint")
                 }
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
                     GridRow {
                         FieldLabel("亮度", dirty: presentation.dirty.contains(.brightness))
-                        BrightnessPicker(value: presentation.brightness, isEnabled: presentation.isEnabled) { onEdit(.brightness($0)) }
+                        BrightnessPicker(value: presentation.brightness, id: "config.brightness", isEnabled: presentation.isEnabled) { onEdit(.brightness($0)) }
                             .frame(maxWidth: 360)
                     }
                     GridRow {
                         FieldLabel("速度", dirty: presentation.dirty.contains(.speed))
                         HStack {
-                            SpeedSlider(value: presentation.speed, isEnabled: presentation.isEnabled) { onEdit(.speed($0)) }
+                            SpeedSlider(value: presentation.speed, id: "config.speed", isEnabled: presentation.isEnabled) { onEdit(.speed($0)) }
                                 .frame(maxWidth: 300)
                             Text(LightingText.speed(presentation.speed)).monospacedDigit().foregroundStyle(.secondary)
+                                .accessibilityIdentifier("config.speed.value")
                         }
                     }
                     GridRow {
                         FieldLabel("颜色", dirty: presentation.dirty.contains(.color) || presentation.dirty.contains(.randomColor))
                         ColorChooser(
-                            color: presentation.color, randomColor: presentation.randomColor, isEnabled: presentation.isEnabled,
+                            color: presentation.color, randomColor: presentation.randomColor, idPrefix: "config.color", isEnabled: presentation.isEnabled,
                             onColor: { color in
                                 onEdit(.color(color))
                                 onEdit(.randomColor(false))
@@ -213,6 +225,7 @@ struct PowerEditor: View {
                 GridRow {
                     FieldLabel("一级休眠", dirty: presentation.dirty.contains(.sleepSeconds))
                     SleepControl(
+                        id: "config.sleep",
                         value: presentation.sleepSeconds, range: ProfileSettings.sleepSecondsRange, step: 10,
                         defaultValue: 300, label: LightingText.sleep(seconds:), isEnabled: presentation.isEnabled
                     ) { onEdit(.sleepSeconds($0)) }
@@ -220,6 +233,7 @@ struct PowerEditor: View {
                 GridRow {
                     FieldLabel("二级休眠", dirty: presentation.dirty.contains(.deepSleepMinutes))
                     SleepControl(
+                        id: "config.deepSleep",
                         value: presentation.deepSleepMinutes, range: ProfileSettings.deepSleepMinutesRange, step: 5,
                         defaultValue: 30, label: LightingText.deepSleep(minutes:), isEnabled: presentation.isEnabled
                     ) { onEdit(.deepSleepMinutes($0)) }
@@ -236,6 +250,7 @@ struct PowerEditor: View {
 }
 
 struct SleepControl: View {
+    let id: String
     let value: Int
     let range: ClosedRange<Int>
     let step: Int
@@ -247,6 +262,7 @@ struct SleepControl: View {
     var body: some View {
         HStack(spacing: 12) {
             Toggle("不休眠", isOn: Binding(get: { value == 0 }, set: { onChange($0 ? 0 : defaultValue) }))
+                .accessibilityIdentifier("\(id).never")
             // Continuous slider snapped in code: a stepped macOS slider draws one tick per step.
             Slider(
                 value: Binding(
@@ -257,7 +273,9 @@ struct SleepControl: View {
             )
             .frame(maxWidth: 260)
             .disabled(value == 0)
+            .accessibilityIdentifier("\(id).slider")
             Text(label(value)).monospacedDigit().foregroundStyle(.secondary).frame(width: 80, alignment: .leading)
+                .accessibilityIdentifier("\(id).value")
         }
         .disabled(!isEnabled)
     }
@@ -292,8 +310,10 @@ struct SaveBar: View {
             HStack(spacing: 12) {
                 Image(systemName: "pencil.circle.fill").foregroundStyle(.orange)
                 Text(presentation.isSaving ? "正在写入键盘…" : "\(presentation.dirtyCount) 项修改尚未写入键盘")
+                    .accessibilityIdentifier("savebar.status")
                 Spacer()
                 Button("放弃修改", role: .destructive, action: onDiscard)
+                    .accessibilityIdentifier("savebar.discard")
                 Button(action: onSave) {
                     if presentation.isSaving {
                         ProgressView().controlSize(.small)
@@ -304,6 +324,8 @@ struct SaveBar: View {
                 .keyboardShortcut("s")
                 .buttonStyle(.borderedProminent)
                 .disabled(!presentation.canSave)
+                .accessibilityLabel("写入键盘")
+                .accessibilityIdentifier("savebar.save")
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
@@ -330,9 +352,12 @@ struct PresetLibraryView: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 260)
                         .onSubmit(onSave)
+                        .accessibilityIdentifier("preset.name")
                     Button("将编辑区保存为预设", action: onSave).disabled(!presentation.canSave)
+                        .accessibilityIdentifier("preset.save")
                     Spacer()
                     Button("导入…", systemImage: "square.and.arrow.down", action: onImport)
+                        .accessibilityIdentifier("preset.import")
                 }
                 if presentation.isLoading {
                     ProgressView().controlSize(.small)
@@ -341,13 +366,16 @@ struct PresetLibraryView: View {
                 } else if presentation.rows.isEmpty {
                     Text("还没有预设。保存后可以随时载入到任意配置档，或导出给其他 Mac。")
                         .font(.callout).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("preset.empty")
                 } else {
                     VStack(spacing: 0) {
                         ForEach(presentation.rows) { row in
                             HStack(spacing: 10) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(row.name).font(.body.weight(.medium))
+                                        .accessibilityIdentifier("preset.title")
                                     Text(row.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        .accessibilityIdentifier("preset.detail.\(row.name)")
                                 }
                                 Spacer()
                                 if !row.isCompatible {
@@ -356,6 +384,7 @@ struct PresetLibraryView: View {
                                 Button("载入") { onLoad(row.id) }
                                     .disabled(!presentation.canLoad || !row.isCompatible)
                                     .help("载入到编辑区，确认后点「写入键盘」")
+                                    .accessibilityIdentifier("preset.load.\(row.name)")
                                 Menu {
                                     Button("导出…", systemImage: "square.and.arrow.up") { onExport(row.id) }
                                     Button("删除", systemImage: "trash", role: .destructive) { onDelete(row.id) }
@@ -364,6 +393,8 @@ struct PresetLibraryView: View {
                                 }
                                 .menuStyle(.borderlessButton)
                                 .fixedSize()
+                                .accessibilityLabel("更多操作")
+                                .accessibilityIdentifier("preset.menu.\(row.name)")
                             }
                             .padding(.vertical, 6)
                             if row.id != presentation.rows.last?.id { Divider() }
@@ -401,8 +432,11 @@ struct BannerView: View {
         HStack {
             Label(message, systemImage: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(isError ? Color.orange : Color.green)
+                .accessibilityIdentifier(isError ? "banner.error" : "banner.success")
             Spacer()
             Button(action: onDismiss) { Image(systemName: "xmark") }.buttonStyle(.plain).foregroundStyle(.secondary)
+                .accessibilityLabel("关闭提示")
+                .accessibilityIdentifier("banner.dismiss")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)

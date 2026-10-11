@@ -4,6 +4,8 @@ import SwiftUI
 
 struct DeviceInfoView: View {
     let store: StoreOf<DeviceInfoFeature>
+    /// Pure presentation state: whether the raw protocol dump is expanded.
+    @State private var showsRawData = false
 
     var body: some View {
         ScrollView {
@@ -32,6 +34,7 @@ struct DeviceInfoView: View {
                 }
                 .disabled(!store.isConnected || store.vendor.isLoading)
                 .keyboardShortcut("r")
+                .accessibilityIdentifier("info.refresh")
             }
         }
         .task { await store.send(.task).finish() }
@@ -40,12 +43,12 @@ struct DeviceInfoView: View {
     private var identity: some View {
         GroupBox("基本信息") {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                InfoRow("型号", store.model?.name ?? "未适配型号（仅显示 USB 信息）")
+                InfoRow("型号", id: "info.model", store.model?.name ?? "未适配型号（仅显示 USB 信息）")
                 InfoRow("产品名", store.keyboard.product)
                 InfoRow("制造商", store.keyboard.manufacturer.isEmpty ? "—" : store.keyboard.manufacturer)
-                InfoRow("VID / PID", String(format: "0x%04X / 0x%04X", store.keyboard.id.vendorID, store.keyboard.id.productID))
-                InfoRow("固件版本", "\(store.keyboard.firmwareVersion)  (bcdDevice 0x\(String(format: "%04X", store.keyboard.releaseNumber)))")
-                InfoRow("连接", "\(store.keyboard.transport) · Location 0x\(String(format: "%08X", store.keyboard.id.locationID))")
+                InfoRow("VID / PID", id: "info.vidpid", String(format: "0x%04X / 0x%04X", store.keyboard.id.vendorID, store.keyboard.id.productID))
+                InfoRow("固件版本", id: "info.firmware", "\(store.keyboard.firmwareVersion)  (bcdDevice 0x\(String(format: "%04X", store.keyboard.releaseNumber)))")
+                InfoRow("连接", id: "info.connection", "\(store.keyboard.transport) · Location 0x\(String(format: "%08X", store.keyboard.id.locationID))")
                 if let serial = store.keyboard.serialNumber { InfoRow("序列号", serial) }
                 if let date = store.lastUpdated {
                     InfoRow("读取时间", date.formatted(date: .omitted, time: .standard))
@@ -60,7 +63,7 @@ struct DeviceInfoView: View {
         GroupBox("电源与状态") {
             LoadableView(loadable: store.vendor) { snapshot in
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                    InfoRow("电量") {
+                    InfoRow("电量", id: "info.battery", summary: "\(snapshot.battery.percent)%" + (snapshot.battery.charging == .charging ? " 充电中" : "")) {
                         HStack {
                             Gauge(value: Double(snapshot.battery.percent), in: 0...100) { EmptyView() }
                                 .gaugeStyle(.accessoryLinearCapacity)
@@ -70,8 +73,8 @@ struct DeviceInfoView: View {
                             chargingLabel(snapshot.battery.charging)
                         }
                     }
-                    InfoRow("工作模式", snapshot.status.mode.displayName)
-                    InfoRow("当前配置档", "配置 \(snapshot.configuration.activeProfile + 1)（共 \(store.model?.profileCount ?? snapshot.configuration.profiles.count) 个）")
+                    InfoRow("工作模式", id: "info.mode", snapshot.status.mode.displayName)
+                    InfoRow("当前配置档", id: "info.activeProfile", "配置 \(snapshot.configuration.activeProfile + 1)（共 \(store.model?.profileCount ?? snapshot.configuration.profiles.count) 个）")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -84,19 +87,19 @@ struct DeviceInfoView: View {
             LoadableView(loadable: store.vendor) { snapshot in
                 let p = snapshot.profile
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                    InfoRow("灯效", "\(store.model?.effectName(p.lightingEffect) ?? String(format: "0x%02X", p.lightingEffect)) · 速度 \(LightingText.speed(p.speed))")
-                    InfoRow("背光亮度", "\(LightingText.brightness(p.brightness))（\(p.brightness) / 4）")
-                    InfoRow("灯效颜色") {
+                    InfoRow("灯效", id: "info.effect", "\(store.model?.effectName(p.lightingEffect) ?? String(format: "0x%02X", p.lightingEffect)) · 速度 \(LightingText.speed(p.speed))")
+                    InfoRow("背光亮度", id: "info.brightness", "\(LightingText.brightness(p.brightness))（\(p.brightness) / 4）")
+                    InfoRow("灯效颜色", id: "info.color", summary: p.randomColor ? "随机颜色" : p.color.description) {
                         if p.randomColor {
                             Text("随机颜色")
                         } else {
                             ColorSwatchLabel(color: p.color)
                         }
                     }
-                    InfoRow("一级休眠", LightingText.sleep(seconds: p.sleepSeconds))
-                    InfoRow("二级休眠", LightingText.deepSleep(minutes: p.deepSleepMinutes))
-                    InfoRow("回报率档位", LightingText.polling(p))
-                    InfoRow("按键锁定", p.keyLocks.isEmpty ? "无" : p.keyLocks.map(\.description).joined(separator: "、"))
+                    InfoRow("一级休眠", id: "info.sleep", LightingText.sleep(seconds: p.sleepSeconds))
+                    InfoRow("二级休眠", id: "info.deepSleep", LightingText.deepSleep(minutes: p.deepSleepMinutes))
+                    InfoRow("回报率档位", id: "info.polling", LightingText.polling(p))
+                    InfoRow("按键锁定", id: "info.keyLocks", p.keyLocks.isEmpty ? "无" : p.keyLocks.map(\.description).joined(separator: "、"))
                     InfoRow("指示灯颜色") {
                         HStack(spacing: 8) {
                             ForEach(Array(p.indicatorColors.enumerated()), id: \.offset) { _, color in
@@ -115,12 +118,15 @@ struct DeviceInfoView: View {
         GroupBox("固件") {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                 InfoRow("运行版本", store.keyboard.firmwareVersion.description)
-                InfoRow("镜像 CRC") {
+                InfoRow("镜像 CRC", id: "info.crc", summary: store.firmware.summary { String(format: "0x%08X", $0.crc) }) {
                     LoadableView(loadable: store.firmware) { status in
                         Text(String(format: "0x%08X", status.crc)).monospaced()
                     }
                 }
-                InfoRow("云端最新") {
+                InfoRow("云端最新", id: "info.latest", summary: store.latestRelease.summary { release in
+                    guard let release else { return "目录中没有该型号的固件" }
+                    return "\(release.versionName)  (\(release.name)) " + (store.updateAvailable == true ? "可升级" : "已是最新")
+                }) {
                     LoadableView(loadable: store.latestRelease) { release in
                         if let release {
                             HStack {
@@ -168,20 +174,34 @@ struct DeviceInfoView: View {
 
     private func rawData(_ snapshot: VendorSnapshot) -> some View {
         GroupBox {
-            DisclosureGroup("私有协议原始数据") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("0x1A 电量").font(.caption.bold())
-                    Text(hexString(snapshot.battery.raw)).font(.caption.monospaced())
-                    Text("0x1D 设备信息").font(.caption.bold())
-                    Text(hexString(snapshot.status.raw)).font(.caption.monospaced())
-                    ForEach(snapshot.configuration.profiles, id: \.profile) { profile in
-                        Text("0x05 配置档 \(profile.profile + 1)（偏移 0x\(String(format: "%03X", profile.profile * ProfileConfig.blockSize))）").font(.caption.bold())
-                        Text(hexString(profile.raw)).font(.caption.monospaced())
-                    }
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { showsRawData.toggle() }
+                } label: {
+                    Label("私有协议原始数据", systemImage: showsRawData ? "chevron.down" : "chevron.right")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 6)
+                .buttonStyle(.plain)
+                .accessibilityValue(showsRawData ? "已展开" : "已收起")
+                .accessibilityIdentifier("info.raw.toggle")
+                if showsRawData {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("0x1A 电量").font(.caption.bold())
+                        Text(hexString(snapshot.battery.raw)).font(.caption.monospaced())
+                        Text("0x1D 设备信息").font(.caption.bold())
+                        Text(hexString(snapshot.status.raw)).font(.caption.monospaced())
+                        ForEach(snapshot.configuration.profiles, id: \.profile) { profile in
+                            Text("0x05 配置档 \(profile.profile + 1)（偏移 0x\(String(format: "%03X", profile.profile * ProfileConfig.blockSize))）").font(.caption.bold())
+                            Text(hexString(profile.raw)).font(.caption.monospaced())
+                        }
+                    }
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 20)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("info.raw.content")
+                }
             }
             .padding(8)
         }

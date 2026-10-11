@@ -96,6 +96,10 @@ public struct MenuBarLabel: View {
                 Text(text).monospacedDigit()
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("CHERRY Utility")
+        .accessibilityValue(store.labelText ?? "未连接")
+        .accessibilityIdentifier("menubar.label")
     }
 }
 
@@ -119,6 +123,7 @@ public struct MenuBarPanel: View {
                     ForEach(store.keyboards) { Text($0.displayName).tag(Optional($0.id)) }
                 }
                 .labelsHidden()
+                .accessibilityIdentifier("menubar.devicePicker")
             }
             if let status = store.statusPresentation {
                 StatusHeader(presentation: status, isLoading: store.snapshot.isLoading || store.isApplying)
@@ -138,6 +143,7 @@ public struct MenuBarPanel: View {
                     }
                 } else if store.model == nil {
                     Text("该型号尚未适配，只能查看 USB 信息。").font(.callout).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("menubar.unsupported")
                 } else if store.snapshot.isLoading {
                     ProgressView().frame(maxWidth: .infinity)
                 }
@@ -149,6 +155,7 @@ public struct MenuBarPanel: View {
             } else {
                 ContentUnavailableView("未检测到 CHERRY 键盘", systemImage: "keyboard.badge.ellipsis", description: Text("用 USB 线连接键盘"))
                     .frame(height: 140)
+                    .accessibilityIdentifier("menubar.empty")
             }
             Divider()
             PanelFooter(
@@ -160,6 +167,8 @@ public struct MenuBarPanel: View {
         }
         .padding(14)
         .frame(width: 340)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("menubar.panel")
         .task { await store.send(.panelAppeared).finish() }
     }
 }
@@ -175,19 +184,24 @@ struct StatusHeader: View {
             HStack(alignment: .firstTextBaseline) {
                 Image(systemName: "keyboard").foregroundStyle(Color.accentColor)
                 Text(presentation.deviceName).font(.headline)
+                    .accessibilityIdentifier("menubar.device")
                 Spacer()
                 if isLoading { ProgressView().controlSize(.mini) }
                 BatteryBadge(percent: presentation.batteryPercent, isCharging: presentation.isCharging)
                     .font(.callout)
+                    .accessibilityIdentifier("menubar.battery")
             }
             HStack(spacing: 10) {
                 Label(presentation.connection, systemImage: "cable.connector")
+                    .accessibilityIdentifier("menubar.connection")
                 Label("固件 \(presentation.firmware)", systemImage: "cpu")
+                    .accessibilityIdentifier("menubar.firmware")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
             if let lighting = presentation.lightingSummary {
                 Label(lighting, systemImage: "light.max").font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("menubar.summary")
             }
         }
     }
@@ -216,19 +230,20 @@ struct QuickLightingControls: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(width: 150)
+                .accessibilityIdentifier("menubar.profile")
             }
             Text("灯效").font(.subheadline.weight(.medium))
-            EffectGrid(options: presentation.effects, columns: 4, compact: true, isEnabled: presentation.isEnabled, onSelect: onEffect)
+            EffectGrid(options: presentation.effects, columns: 4, compact: true, idPrefix: "menubar.effect", isEnabled: presentation.isEnabled, onSelect: onEffect)
             HStack {
                 Text("亮度").font(.subheadline.weight(.medium)).frame(width: 34, alignment: .leading)
-                BrightnessPicker(value: presentation.brightness, isEnabled: presentation.isEnabled, onChange: onBrightness)
+                BrightnessPicker(value: presentation.brightness, id: "menubar.brightness", isEnabled: presentation.isEnabled, onChange: onBrightness)
             }
             HStack {
                 Text("速度").font(.subheadline.weight(.medium)).frame(width: 34, alignment: .leading)
-                SpeedSlider(value: presentation.speed, isEnabled: presentation.isEnabled, onChange: onSpeed)
+                SpeedSlider(value: presentation.speed, id: "menubar.speed", isEnabled: presentation.isEnabled, onChange: onSpeed)
             }
             ColorChooser(
-                color: presentation.color, randomColor: presentation.randomColor, showsPicker: false,
+                color: presentation.color, randomColor: presentation.randomColor, showsPicker: false, idPrefix: "menubar.color",
                 isEnabled: presentation.isEnabled, onColor: onColor, onRandom: { if $0 { onRandom() } }
             )
         }
@@ -250,6 +265,7 @@ struct PresetMenu: View {
             Label("载入预设到当前配置档", systemImage: "square.stack.3d.down.right")
         }
         .disabled(!isEnabled)
+        .accessibilityIdentifier("menubar.presets")
     }
 }
 
@@ -261,8 +277,10 @@ struct ErrorNotice: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label(message, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                .accessibilityIdentifier("menubar.error")
             if showsSettingsButton {
                 Button("打开“输入监控”设置", action: onOpenSettings).controlSize(.small)
+                    .accessibilityIdentifier("menubar.openSettings")
             }
         }
     }
@@ -277,12 +295,17 @@ struct PanelFooter: View {
     var body: some View {
         HStack {
             Button("打开 CHERRY Utility", action: onOpenMainWindow)
+                .accessibilityIdentifier("menubar.openMain")
             Spacer()
             Button(action: onRefresh) { Image(systemName: "arrow.clockwise") }
                 .help("刷新")
                 .disabled(!canRefresh)
+                .accessibilityLabel("刷新")
+                .accessibilityIdentifier("menubar.refresh")
             Button(action: onQuit) { Image(systemName: "power") }
                 .help("退出")
+                .accessibilityLabel("退出")
+                .accessibilityIdentifier("menubar.quit")
         }
         .buttonStyle(.borderless)
     }

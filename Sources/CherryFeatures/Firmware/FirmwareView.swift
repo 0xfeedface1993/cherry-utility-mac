@@ -29,8 +29,12 @@ struct FirmwareView: View {
     private var versions: some View {
         GroupBox("版本") {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                InfoRow("设备当前", store.keyboard.firmwareVersion.description)
-                InfoRow("云端最新") {
+                InfoRow("设备当前", id: "firmware.current", store.keyboard.firmwareVersion.description)
+                InfoRow("云端最新", id: "firmware.latest", summary: store.latest.summary { release in
+                    guard let release else { return "目录中没有该型号的固件" }
+                    let newer = release.version.map { $0 > store.keyboard.firmwareVersion } ?? false
+                    return "\(release.versionName) · \(release.name)" + (newer ? " 有新版本" : "")
+                }) {
                     LoadableView(loadable: store.latest) { release in
                         if let release {
                             HStack {
@@ -54,12 +58,14 @@ struct FirmwareView: View {
                 } label: {
                     Label("下载并校验云端升级包", systemImage: "icloud.and.arrow.down")
                 }
+                .accessibilityIdentifier("firmware.download")
                 .disabled((store.latest.value ?? nil) == nil || store.package.isLoading || store.isBusy)
                 Button {
                     store.send(.importTapped)
                 } label: {
                     Label("选择本地升级包…", systemImage: "folder")
                 }
+                .accessibilityIdentifier("firmware.import")
                 .disabled(store.package.isLoading || store.isBusy)
                 Spacer()
             }
@@ -74,10 +80,12 @@ struct FirmwareView: View {
                 case .idle:
                     Text("尚未选择升级包。官方升级包是 Windows 程序，本应用会从中提取固件、校验 MD5 与 CRC 后直接在 macOS 上刷写。")
                         .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("firmware.package.none")
                 case .loading:
                     HStack { ProgressView().controlSize(.small); Text("下载 / 解析中…") }
                 case .failed(let message):
                     Label(message, systemImage: "xmark.octagon").foregroundStyle(.red)
+                        .accessibilityIdentifier("firmware.package.error")
                 case .loaded(let package):
                     packageDetails(package)
                 }
@@ -91,12 +99,14 @@ struct FirmwareView: View {
         let image = package.image
         return VStack(alignment: .leading, spacing: 10) {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                InfoRow("文件", package.displayName)
-                InfoRow("文件 MD5", package.fileMD5)
-                InfoRow("目标设备", String(format: "VID 0x%04X  PID 0x%04X  · OTA UsagePage 0x%04X · ReportID %d",
+                InfoRow("文件", id: "firmware.package.file", package.displayName)
+                InfoRow("文件 MD5", id: "firmware.package.md5", package.fileMD5)
+                InfoRow("目标设备", id: "firmware.package.target", String(format: "VID 0x%04X  PID 0x%04X  · OTA UsagePage 0x%04X · ReportID %d",
                                         image.vendorID, image.productID, image.usagePage, image.reportID))
-                InfoRow("固件", "\(image.firmware.count) 字节 · CRC32 0x\(String(format: "%08X", image.embeddedCRC)) ✓")
-                InfoRow("设备固件 CRC") {
+                InfoRow("固件", id: "firmware.package.image", "\(image.firmware.count) 字节 · CRC32 0x\(String(format: "%08X", image.embeddedCRC)) ✓")
+                InfoRow("设备固件 CRC", id: "firmware.package.deviceCRC", summary: store.deviceFirmware.summary { status in
+                    String(format: "0x%08X ", status.crc) + (store.deviceMatchesPackage == true ? "与升级包相同" : "与升级包不同")
+                }) {
                     LoadableView(loadable: store.deviceFirmware) { status in
                         HStack {
                             Text(String(format: "0x%08X", status.crc)).monospaced()
@@ -115,6 +125,7 @@ struct FirmwareView: View {
             }
             ForEach(store.incompatibilities, id: \.self) { problem in
                 Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    .accessibilityIdentifier("firmware.problem")
             }
         }
     }
@@ -131,6 +142,7 @@ struct FirmwareView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!store.canFlash)
+                    .accessibilityIdentifier("firmware.flash")
                     Text("请保持键盘为有线模式并直连 USB；升级约 30 秒，期间不要拔线。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -141,8 +153,14 @@ struct FirmwareView: View {
         }
     }
 
-    @ViewBuilder
     private var phaseView: some View {
+        phaseContent
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("firmware.phase")
+    }
+
+    @ViewBuilder
+    private var phaseContent: some View {
         switch store.phase {
         case .idle:
             EmptyView()

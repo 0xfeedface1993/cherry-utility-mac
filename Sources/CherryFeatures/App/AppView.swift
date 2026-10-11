@@ -16,6 +16,8 @@ public struct AppView: View {
                     ForEach(store.keyboards) { keyboard in
                         KeyboardRow(keyboard: keyboard)
                             .tag(keyboard.id)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("sidebar.keyboard")
                     }
                 }
                 if let detail = store.detail, !detail.isConnected {
@@ -28,6 +30,7 @@ public struct AppView: View {
             .overlay {
                 if store.keyboards.isEmpty && store.detail == nil {
                     ContentUnavailableView("未检测到设备", systemImage: "keyboard.badge.ellipsis", description: Text("用 USB 线连接 CHERRY 键盘"))
+                        .accessibilityIdentifier("sidebar.empty")
                 }
             }
         } detail: {
@@ -67,6 +70,7 @@ struct KeyboardView: View {
         VStack(spacing: 0) {
             if !store.isConnected {
                 Label(store.isBusy ? "设备正在重启…" : "设备已断开，重新连接后会自动刷新", systemImage: "cable.connector.slash")
+                    .accessibilityIdentifier("detail.disconnected")
                     .frame(maxWidth: .infinity)
                     .padding(8)
                     .background(.orange.opacity(0.15))
@@ -91,6 +95,7 @@ struct KeyboardView: View {
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
+                .accessibilityIdentifier("section.picker")
             }
         }
     }
@@ -99,10 +104,16 @@ struct KeyboardView: View {
 /// Two-column label/value row used across the detail screens.
 struct InfoRow<Value: View>: View {
     let title: String
+    /// Accessibility identifier of the value (UI tests read rows by it).
+    let id: String?
+    /// Spoken / exposed text for composite values whose children don't merge into a readable label.
+    let summary: String?
     @ViewBuilder var value: Value
 
-    init(_ title: String, @ViewBuilder value: () -> Value) {
+    init(_ title: String, id: String? = nil, summary: String? = nil, @ViewBuilder value: () -> Value) {
         self.title = title
+        self.id = id
+        self.summary = summary
         self.value = value()
     }
 
@@ -111,16 +122,43 @@ struct InfoRow<Value: View>: View {
             Text(title)
                 .foregroundStyle(.secondary)
                 .gridColumnAlignment(.trailing)
-            value
-                .gridColumnAlignment(.leading)
-                .textSelection(.enabled)
+            if let id, let summary {
+                value
+                    .gridColumnAlignment(.leading)
+                    .textSelection(.enabled)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(summary)
+                    .accessibilityIdentifier(id)
+            } else if let id {
+                value
+                    .gridColumnAlignment(.leading)
+                    .textSelection(.enabled)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier(id)
+            } else {
+                value
+                    .gridColumnAlignment(.leading)
+                    .textSelection(.enabled)
+            }
         }
     }
 }
 
 extension InfoRow where Value == Text {
-    init(_ title: String, _ text: String) {
-        self.init(title) { Text(text) }
+    init(_ title: String, id: String? = nil, _ text: String) {
+        self.init(title, id: id) { Text(text) }
+    }
+}
+
+extension Loadable {
+    /// Plain-text form for accessibility summaries.
+    func summary(_ describe: (Value) -> String) -> String {
+        switch self {
+        case .idle: "—"
+        case .loading: "读取中"
+        case .loaded(let value): describe(value)
+        case .failed(let message): message
+        }
     }
 }
 

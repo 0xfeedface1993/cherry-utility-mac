@@ -12,9 +12,12 @@ struct KeyTestView: View {
             }
             if let error = store.captureError {
                 Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                    .accessibilityIdentifier("keytest.error")
             }
             if let layout = store.layout {
                 KeyboardCanvas(layout: layout, pressed: store.pressed, tested: store.tested)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("keytest.canvas")
                     .frame(maxWidth: .infinity)
                     .aspectRatio(layout.width / layout.height, contentMode: .fit)
             } else {
@@ -28,12 +31,14 @@ struct KeyTestView: View {
         .toolbar {
             ToolbarItemGroup {
                 Toggle("屏蔽本应用快捷键", isOn: $store.suppressAppShortcuts)
+                    .accessibilityIdentifier("keytest.suppress")
                     .help("测试期间按键不会触发本应用的快捷键（如 ⌘Q）；系统级快捷键无法屏蔽")
                 Button {
                     store.send(.resetTapped)
                 } label: {
                     Label("重置", systemImage: "arrow.counterclockwise")
                 }
+                .accessibilityIdentifier("keytest.reset")
             }
         }
         .task { await store.send(.task).finish() }
@@ -51,28 +56,34 @@ struct KeyTestView: View {
             Spacer()
             // Requesting also adds the app to the Input Monitoring list, so it stays useful after a denial.
             Button("请求权限") { store.send(.requestAccessTapped) }
+                .accessibilityIdentifier("keytest.requestAccess")
             Button("打开系统设置") { store.send(.openSettingsTapped) }
+                .accessibilityIdentifier("keytest.openSettings")
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("keytest.access")
         .padding(12)
         .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var stats: some View {
         HStack(spacing: 24) {
-            stat("已测按键", store.layout == nil ? "\(store.tested.count)" : "\(store.testedLayoutCount) / \(store.testableCount)")
-            stat("当前按下", "\(store.pressed.count)")
-            stat("最多同时按下", "\(store.maxSimultaneous)")
-            stat("事件数", "\(store.eventCount)")
+            stat("已测按键", store.layout == nil ? "\(store.tested.count)" : "\(store.testedLayoutCount) / \(store.testableCount)", id: "keytest.tested")
+            stat("当前按下", "\(store.pressed.count)", id: "keytest.pressed")
+            stat("最多同时按下", "\(store.maxSimultaneous)", id: "keytest.max")
+            stat("事件数", "\(store.eventCount)", id: "keytest.events")
             Spacer()
             Label(store.isCapturing ? "正在监听" : "未监听", systemImage: store.isCapturing ? "dot.radiowaves.left.and.right" : "pause.circle")
                 .foregroundStyle(store.isCapturing ? .green : .secondary)
+                .accessibilityIdentifier("keytest.state")
         }
     }
 
-    private func stat(_ title: String, _ value: String) -> some View {
+    private func stat(_ title: String, _ value: String, id: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             Text(value).font(.title2.monospacedDigit().weight(.semibold))
+                .accessibilityIdentifier(id)
         }
     }
 
@@ -90,6 +101,7 @@ struct KeyTestView: View {
                                 Image(systemName: event.isDown ? "arrow.down.circle.fill" : "arrow.up.circle")
                                     .foregroundStyle(event.isDown ? Color.accentColor : .secondary)
                                 Text(event.label).frame(width: 70, alignment: .leading)
+                                    .accessibilityIdentifier("keytest.log.label")
                                 Text(event.usage.description).font(.caption.monospaced()).foregroundStyle(.secondary)
                                 Spacer()
                                 if let delta = event.deltaMs {
@@ -156,6 +168,19 @@ struct KeyCapView: View {
             )
             .animation(.easeOut(duration: 0.08), value: state)
             .help(helpText)
+            .accessibilityElement(children: .ignore)
+            // State is part of the label: generic elements don't expose accessibilityValue to UI automation.
+            .accessibilityLabel("\(key.label.isEmpty ? "Space" : key.label) \(stateText)")
+            .accessibilityIdentifier("key.\(key.id)")
+    }
+
+    private var stateText: String {
+        switch state {
+        case .pressed: "按下"
+        case .tested: "已测"
+        case .untested: "未测"
+        case .undetectable: "不可测"
+        }
     }
 
     private var helpText: String {

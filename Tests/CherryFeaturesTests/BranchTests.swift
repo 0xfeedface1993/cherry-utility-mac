@@ -218,9 +218,9 @@ struct BranchTests {
         #expect(patch.fields == [.brightness] && editor.isSaving)
         let duringSave = editor.draft
         editor.edit { $0.color = LEDColor(r: 1, g: 2, b: 3) }
-        #expect(editor.draft == duringSave && editor.beginSave() == nil)
+        #expect(editor.draft != duringSave && editor.beginSave() == nil)
         editor.saveSucceeded(patch.applied(to: remote))
-        #expect(!editor.hasUnsavedChanges && !editor.isSaving)
+        #expect(editor.dirty == [.color] && !editor.isSaving)
     }
 
     @Test func profileEditorRetainsFailedDraftAndCanDiscard() {

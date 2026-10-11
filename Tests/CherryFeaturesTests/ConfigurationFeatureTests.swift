@@ -60,11 +60,11 @@ struct ProfileEditorTests {
         let patch = editor.beginSave()
         #expect(patch?.fields == [.brightness, .sleepSeconds])
         #expect(editor.isSaving)
-        editor.edit { $0.effect = 2 } // ignored while saving
-        #expect(editor.draft.effect == base.effect)
+        editor.edit { $0.effect = 2 } // 保存期间继续编辑
+        #expect(editor.draft.effect == 2)
         #expect(editor.beginSave() == nil) // no second save while one is running
         editor.saveFailed()
-        #expect(!editor.isSaving && editor.dirty == [.brightness, .sleepSeconds] && editor.draft.sleepSeconds == 120)
+        #expect(!editor.isSaving && editor.dirty == [.brightness, .sleepSeconds, .effect] && editor.draft.sleepSeconds == 120)
     }
 
     @Test func nothingToSaveReturnsNil() {
@@ -210,7 +210,7 @@ struct ConfigurationFeatureTests {
         } withDependencies: {
             $0.configurationClient.activateProfile = { _, _ in activated }
         }
-        await store.send(.activateProfile(2)) { $0.activatingProfile = 2 }
+        await store.send(.activateProfile(2)) { $0.activatingProfile = 2; $0.activationGeneration = 1 }
         await store.receive(\.activationFinished) {
             $0.configurationRevision += 1
             $0.activatingProfile = nil
@@ -268,6 +268,7 @@ struct MenuBarFeatureTests {
         let store = TestStore(initialState: MenuBarFeature.State()) {
             MenuBarFeature()
         } withDependencies: {
+            $0.uuid = .incrementing
             $0.keyboardClient.vendorSnapshot = { _ in .preview }
             $0.date.now = Date(timeIntervalSince1970: 10)
         }
@@ -291,15 +292,16 @@ struct MenuBarFeatureTests {
         let store = TestStore(initialState: state) {
             MenuBarFeature()
         } withDependencies: {
-            $0.configurationClient.updateProfile = { n, _, patch in
-                log.append(n, patch)
-                return try ProfileConfig(profile: n, raw: KeyboardConfiguration.preview.profile(n)!.applying(patch))
+            $0.uuid = .incrementing
+            $0.configurationClient.applyIntent = { intent, _ in
+                for (profile, patch) in intent.patches { log.append(profile, patch) }
+                return intent.applied(to: .preview)
             }
         }
         store.exhaustivity = .off
-        await store.send(.setBrightness(1)) { $0.pendingWrites = 1 }
-        await store.receive(\.writeFinished) { $0.pendingWrites = 0 }
-        await store.receive(\.delegate, .configurationChanged(KeyboardSummary.preview.id, .profile(store.state.currentSnapshot!.profile)))
+        await store.send(.setBrightness(1))
+        await store.receive(\.intentFinished)
+        await store.receive(\.delegate, .configurationChanged(KeyboardSummary.preview.id, .configuration(store.state.currentSnapshot!.configuration)))
         #expect(log.all.map(\.profile) == [1])
         #expect(log.all.first?.patch.fields == [.brightness])
         #expect(store.state.currentSnapshot?.profile.brightness == 1)
@@ -316,6 +318,7 @@ struct MenuBarFeatureTests {
         let store = TestStore(initialState: state) {
             MenuBarFeature()
         } withDependencies: {
+            $0.uuid = .incrementing
             $0.continuousClock = clock
             $0.keyboardClient.vendorSnapshot = { _ in .preview }
             $0.date.now = Date(timeIntervalSince1970: 0)
@@ -335,6 +338,7 @@ struct MenuBarFeatureTests {
         let store = TestStore(initialState: state) {
             MenuBarFeature()
         } withDependencies: {
+            $0.uuid = .incrementing
             $0.keyboardClient.vendorSnapshot = { _ in throw CherryError.accessDenied }
         }
         store.exhaustivity = .off
@@ -373,6 +377,7 @@ struct AppMenuBarWiringTests {
         let store = TestStore(initialState: AppFeature.State()) {
             AppFeature()
         } withDependencies: {
+            $0.uuid = .incrementing
             $0.keyboardClient.updates = { AsyncStream { $0.finish() } }
             $0.continuousClock = TestClock()
         }

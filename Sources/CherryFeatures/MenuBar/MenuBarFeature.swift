@@ -2,16 +2,13 @@ import CherryCore
 import ComposableArchitecture
 import Foundation
 
-/// Status-item panel: battery / device / mode / lighting at a glance, plus quick lighting and profile changes
-/// applied straight to the active profile.
 @Reducer
 public struct MenuBarFeature: Sendable {
-    enum PendingWrite: Equatable, Sendable {
-        case patch(KeyboardSummary, Int, ProfilePatch)
-        case activate(KeyboardSummary, Int)
-        var keyboardID: KeyboardID {
-            switch self { case .patch(let keyboard, _, _), .activate(let keyboard, _): keyboard.id }
-        }
+    struct Request: Equatable, Sendable {
+        let id: UUID
+        let keyboardID: KeyboardID
+        let intent: ConfigurationIntent
+        let sequence: UInt64
     }
 
     @ObservableState
@@ -19,69 +16,49 @@ public struct MenuBarFeature: Sendable {
         public var keyboards: IdentifiedArrayOf<KeyboardSummary> = []
         public var selectedID: KeyboardID?
         public var snapshot: Loadable<VendorSnapshot> = .idle
-        /// Keyboard the snapshot belongs to.
         public var snapshotID: KeyboardID?
         var snapshotRevision: UInt64 = 0
         var pendingConfiguration: [ConfigurationChange] = []
+        var requests: [Request] = []
+        var requestSequence: UInt64 = 0
+        var confirmedSequence: [KeyboardID: UInt64] = [:]
         public var presets: [ProfilePreset] = []
-        /// Number of writes still running (writes are queued, never cancelled half-way).
-        public var pendingWrites = 0
-        var inFlightWrite: PendingWrite?
-        var queuedWrite: PendingWrite?
         public var errorMessage: String?
         public var lastUpdated: Date?
 
         public init() {}
-
-        public var keyboard: KeyboardSummary? {
-            selectedID.flatMap { keyboards[id: $0] } ?? keyboards.first
-        }
-
+        public var keyboard: KeyboardSummary? { selectedID.flatMap { keyboards[id: $0] } ?? keyboards.first }
         public var model: KeyboardModel? { keyboard?.model }
-
-        /// Snapshot of the current keyboard only (a stale one from another keyboard is never shown).
-        public var currentSnapshot: VendorSnapshot? {
-            snapshotID == keyboard?.id ? snapshot.value : nil
-        }
-
+        public var currentSnapshot: VendorSnapshot? { snapshotID == keyboard?.id ? snapshot.value : nil }
+        public var pendingWrites: Int { requests.filter { $0.keyboardID == keyboard?.id }.count }
         public var isApplying: Bool { pendingWrites > 0 }
-        public var isActivating: Bool {
-            if case .activate = inFlightWrite { return true }
-            if case .activate = queuedWrite { return true }
-            return false
+
+        /// 用户意图叠加在已校验配置上，中间读回不会使选择反跳。
+        public var desiredConfiguration: KeyboardConfiguration? {
+            guard let configuration = currentSnapshot?.configuration else { return nil }
+            return requests.filter {
+                $0.keyboardID == keyboard?.id && $0.sequence > (confirmedSequence[$0.keyboardID] ?? 0)
+            }.reduce(configuration) { $1.intent.applied(to: $0) }
         }
-        public var desiredSettings: ProfileSettings? {
-            guard let snapshot = currentSnapshot else { return nil }
-            var settings = snapshot.configuration.active.settings
-            for request in [inFlightWrite, queuedWrite] {
-                if case .patch(let keyboard, let profile, let patch) = request,
-                   keyboard.id == self.keyboard?.id, profile == snapshot.configuration.activeProfile {
-                    settings = patch.applied(to: settings)
-                }
-            }
-            return settings
-        }
+        public var desiredSettings: ProfileSettings? { desiredConfiguration?.active.settings }
+        public var canConfigure: Bool { keyboard?.canConfigure == true && currentSnapshot != nil }
         public var needsInputMonitoring: Bool { errorMessage == CherryError.accessDenied.userMessage }
     }
 
     public enum Action {
-        case task
-        case tick
-        case panelAppeared
+        case task, tick, panelAppeared, refresh
         case keyboardsUpdated([KeyboardSummary])
         case selectKeyboard(KeyboardID)
-        case refresh
         case snapshotLoaded(KeyboardID, Result<VendorSnapshot, any Error>, revision: UInt64? = nil)
         case presetsLoaded(Result<[ProfilePreset], any Error>)
         case activateProfile(Int)
-        case activationFinished(KeyboardID, Result<KeyboardConfiguration, any Error>)
         case setEffect(UInt8)
         case setBrightness(Int)
         case setSpeed(Int)
         case setColor(LEDColor)
         case setRandomColor
         case applyPreset(ProfilePreset.ID)
-        case writeFinished(KeyboardID, Result<ProfileConfig, any Error>)
+        case intentFinished(UUID, KeyboardID, Result<KeyboardConfiguration, any Error>)
         case configurationSynchronized(KeyboardID, ConfigurationChange)
         case openInputMonitoringTapped
         case delegate(Delegate)
@@ -92,15 +69,14 @@ public struct MenuBarFeature: Sendable {
     }
 
     enum CancelID { case poll, refresh }
-
     public static let pollInterval: Duration = .seconds(60)
-
     @Dependency(\.keyboardClient) var keyboardClient
     @Dependency(\.configurationClient) var configurationClient
     @Dependency(\.presetClient) var presetClient
     @Dependency(\.keyTestClient) var accessClient
     @Dependency(\.continuousClock) var clock
     @Dependency(\.date.now) var now
+    @Dependency(\.uuid) var uuid
     @Dependency(\.diagnostics) var diagnostics
 
     public init() {}
@@ -109,54 +85,45 @@ public struct MenuBarFeature: Sendable {
         Reduce { state, action in
             switch action {
             case .task:
-                // Background status poll for the status-item label; lives as long as the app's store.
                 return .run { send in
                     for await _ in clock.timer(interval: Self.pollInterval) {
                         try Task.checkCancellation()
                         await send(.tick)
                     }
-                }
-                .cancellable(id: CancelID.poll, cancelInFlight: true)
-
-            case .tick:
-                return state.isApplying ? .none : .send(.refresh)
-
+                }.cancellable(id: CancelID.poll, cancelInFlight: true)
+            case .tick: return state.isApplying ? .none : .send(.refresh)
             case .panelAppeared:
-                return .merge(
-                    .send(.refresh),
-                    .run(origin: .menuBar) { send in await send(.presetsLoaded(Result { try await presetClient.presets() })) }
-                )
-
+                return .merge(.send(.refresh), .run(origin: .menuBar) { send in
+                    await send(.presetsLoaded(Result { try await presetClient.presets() }))
+                })
             case .keyboardsUpdated(let list):
-                let previous = state.keyboard?.id
+                let previous = state.keyboard
+                let previousKeyboards = state.keyboards
                 state.keyboards = IdentifiedArray(uniqueElements: list)
-                if let id = state.selectedID, state.keyboards[id: id] == nil { state.selectedID = nil }
-                guard state.keyboard?.id != previous else { return .none }
-                state.errorMessage = nil
-                discardQueuedWrite(&state)
-                state.snapshotRevision &+= 1
-                state.pendingConfiguration = []
+                // 断连使请求身份失效；重新插入同 ID 也不能接收旧会话结果。
+                state.requests.removeAll { request in !list.contains {
+                    $0.id == request.keyboardID && $0.canConfigure && $0.configurationInterfaceIDs == previousKeyboards[id: request.keyboardID]?.configurationInterfaceIDs
+                } }
+                if let previous {
+                    state.selectedID = list.first(where: { $0.id == previous.id })?.id ?? list.first?.id
+                }
+                guard state.keyboard?.id != previous?.id || state.keyboard?.configurationInterfaceIDs != previous?.configurationInterfaceIDs else { return .none }
+                resetSnapshot(&state)
                 return .send(.refresh)
-
             case .selectKeyboard(let id):
                 guard state.keyboards[id: id] != nil, id != state.keyboard?.id else { return .none }
                 state.selectedID = id
-                state.errorMessage = nil
-                discardQueuedWrite(&state)
-                state.snapshotRevision &+= 1
-                state.pendingConfiguration = []
+                resetSnapshot(&state)
                 return .send(.refresh)
-
             case .refresh:
-                guard let keyboard = state.keyboard, keyboard.model != nil else {
+                guard let keyboard = state.keyboard, keyboard.canConfigure else {
                     state.snapshot = .idle
                     state.snapshotID = nil
                     return .cancel(id: CancelID.refresh)
                 }
-                if state.snapshotID != keyboard.id {
-                    if !state.snapshot.isLoading { state.pendingConfiguration = [] }
-                    state.snapshot = .loading
-                }
+                // 设备切换后仍需读取首次快照；已有快照时不与写入竞争。
+                guard !state.isApplying || state.currentSnapshot == nil else { return .none }
+                if state.snapshotID != keyboard.id { state.snapshot = .loading }
                 let revision = state.snapshotRevision
                 return .run(origin: .menuBar) { send in
                     let result = await Result { try await diagnostics.measure(.refresh) {
@@ -164,120 +131,72 @@ public struct MenuBarFeature: Sendable {
                     } }
                     guard !Task.isCancelled else { return }
                     await send(.snapshotLoaded(keyboard.id, result, revision: revision))
-                }
-                .cancellable(id: CancelID.refresh, cancelInFlight: true)
-
-            case .snapshotLoaded(let id, .success(var snapshot), let revision):
-                guard revision == nil || revision == state.snapshotRevision else { return .none }
-                guard id == state.keyboard?.id else { diagnostics.emit(.resultIgnored, origin: .menuBar, outcome: .ignored); return .none }
-                diagnostics.emit(.resultApplied, origin: .menuBar, outcome: .success)
-                for change in state.pendingConfiguration {
-                    snapshot = snapshot.with(configuration: change.applied(to: snapshot.configuration))
-                }
-                state.pendingConfiguration = []
-                state.snapshot = .loaded(snapshot)
-                state.snapshotID = id
-                state.errorMessage = nil
-                state.lastUpdated = now
-                return .none
-
-            case .snapshotLoaded(let id, .failure(let error), let revision):
-                guard revision == nil || revision == state.snapshotRevision else { return .none }
-                guard id == state.keyboard?.id else { diagnostics.emit(.resultIgnored, origin: .menuBar, outcome: .ignored); return .none }
-                diagnostics.emit(.resultApplied, origin: .menuBar, outcome: .failed)
-                state.errorMessage = error.userMessage
-                if state.snapshotID != id { state.snapshot = .failed(error.userMessage) }
-                return .none
-
-            case .presetsLoaded(.success(let presets)):
-                state.presets = presets
-                return .none
-
-            case .presetsLoaded(.failure):
-                return .none
-
-            case .activateProfile(let n):
-                guard let keyboard = state.keyboard, let snapshot = state.currentSnapshot,
-                      state.pendingWrites > 0 || n != snapshot.configuration.activeProfile else { return .none }
-                if case .patch = state.inFlightWrite { return .none }
-                let request = PendingWrite.activate(keyboard, n)
-                if state.inFlightWrite != nil {
-                    if state.queuedWrite == nil { state.pendingWrites += 1 }
-                    state.queuedWrite = request
-                    return .none
-                }
-                state.pendingWrites += 1
-                state.inFlightWrite = request
-                return execute(request)
-
-            case .activationFinished(let id, let result):
-                state.pendingWrites = max(0, state.pendingWrites - 1)
-                state.inFlightWrite = nil
-                let next = startQueuedWrite(&state)
+                }.cancellable(id: CancelID.refresh, cancelInFlight: true)
+            case .snapshotLoaded(let id, let result, let revision):
+                guard revision == nil || revision == state.snapshotRevision,
+                      id == state.keyboard?.id, state.keyboard?.canConfigure == true else { return .none }
                 switch result {
-                case .success(let configuration):
-                    let previous = id == state.snapshotID ? state.currentSnapshot?.configuration : nil
-                    if id == state.snapshotID, let snapshot = state.currentSnapshot {
-                        state.snapshotRevision &+= 1
-                        state.snapshot = .loaded(snapshot.with(configuration: configuration))
-                    }
-                    if id == state.keyboard?.id { state.errorMessage = nil }
-                    return .merge(next, previous == configuration ? .none : .send(.delegate(.configurationChanged(id, .configuration(configuration)))))
+                case .success(var snapshot):
+                    for change in state.pendingConfiguration { snapshot = snapshot.with(configuration: change.applied(to: snapshot.configuration)) }
+                    state.pendingConfiguration = []
+                    state.snapshot = .loaded(snapshot)
+                    state.snapshotID = id
+                    state.errorMessage = nil
+                    state.lastUpdated = now
+                    diagnostics.emit(.resultApplied, origin: .menuBar, outcome: .success)
                 case .failure(let error):
-                    guard id == state.keyboard?.id else { return next }
                     state.errorMessage = error.userMessage
-                    return .merge(next, state.isApplying ? .none : .send(.refresh))
+                    if state.snapshotID != id { state.snapshot = .failed(error.userMessage) }
+                    diagnostics.emit(.resultApplied, origin: .menuBar, outcome: .failed)
                 }
-
-            case .setEffect(let v):
-                return write(&state) { .set(\.effect, v, field: .effect, on: $0) }
-
-            case .setBrightness(let v):
-                return write(&state) { .set(\.brightness, v, field: .brightness, on: $0) }
-
-            case .setSpeed(let v):
-                return write(&state) { .set(\.speed, v, field: .speed, on: $0) }
-
+                return .none
+            case .presetsLoaded(.success(let presets)): state.presets = presets; return .none
+            case .presetsLoaded(.failure): return .none
+            case .activateProfile(let profile):
+                guard state.canConfigure, let model = state.model, (0..<model.profileCount).contains(profile),
+                      profile != state.desiredConfiguration?.activeProfile else { return .none }
+                return submit(.activate(profile), state: &state)
+            case .setEffect(let value): return write(&state) { .set(\.effect, value, field: .effect, on: $0) }
+            case .setBrightness(let value): return write(&state) { .set(\.brightness, value, field: .brightness, on: $0) }
+            case .setSpeed(let value): return write(&state) { .set(\.speed, value, field: .speed, on: $0) }
             case .setColor(let color):
                 return write(&state) { current in
-                    var s = current
-                    s.color = color
-                    s.randomColor = false
-                    return ProfilePatch(s, fields: [.color, .randomColor])
+                    var settings = current
+                    settings.color = color
+                    settings.randomColor = false
+                    return ProfilePatch(settings, fields: [.color, .randomColor])
                 }
-
-            case .setRandomColor:
-                return write(&state) { .set(\.randomColor, true, field: .randomColor, on: $0) }
-
+            case .setRandomColor: return write(&state) { .set(\.randomColor, true, field: .randomColor, on: $0) }
             case .applyPreset(let id):
-                guard let preset = state.presets.first(where: { $0.id == id }) else { return .none }
-                guard let keyboard = state.keyboard, preset.isCompatible(with: keyboard) else {
+                guard let preset = state.presets.first(where: { $0.id == id }), let keyboard = state.keyboard else { return .none }
+                guard preset.isCompatible(with: keyboard) else {
                     state.errorMessage = "预设「\(preset.name)」来自其他型号"
                     return .none
                 }
                 return write(&state) { _ in .all(preset.settings) }
-
-            case .writeFinished(let id, let result):
-                state.pendingWrites = max(0, state.pendingWrites - 1)
-                state.inFlightWrite = nil
-                let next = startQueuedWrite(&state)
+            case .intentFinished(let requestID, let id, let result):
+                guard let request = state.requests.first(where: { $0.id == requestID && $0.keyboardID == id }) else { return .none }
+                state.requests.removeAll { $0.id == requestID }
+                guard request.sequence >= (state.confirmedSequence[id] ?? 0) else { return .none }
                 switch result {
-                case .success(let saved):
-                    let previous = id == state.snapshotID ? state.currentSnapshot?.configuration.profile(saved.profile) : nil
+                case .success(let configuration):
+                    state.confirmedSequence[id] = request.sequence
+                    let previous = id == state.snapshotID ? state.currentSnapshot?.configuration : nil
                     if id == state.snapshotID, let snapshot = state.currentSnapshot {
                         state.snapshotRevision &+= 1
-                        state.snapshot = .loaded(snapshot.with(configuration: snapshot.configuration.replacing(saved)))
+                        state.snapshot = .loaded(snapshot.with(configuration: configuration))
+                    } else if id == state.keyboard?.id, state.snapshot.isLoading {
+                        state.pendingConfiguration = [.configuration(configuration)]
                     }
                     if id == state.keyboard?.id { state.errorMessage = nil }
-                    return .merge(next, previous == saved ? .none : .send(.delegate(.configurationChanged(id, .profile(saved)))))
+                    return previous == configuration ? .none : .send(.delegate(.configurationChanged(id, .configuration(configuration))))
                 case .failure(let error):
-                    guard id == state.keyboard?.id else { return next }
+                    guard id == state.keyboard?.id else { return .none }
                     state.errorMessage = error.userMessage
-                    return .merge(next, state.isApplying ? .none : .send(.refresh))
+                    return state.isApplying ? .none : .send(.refresh)
                 }
-
             case .configurationSynchronized(let id, let change):
-                guard id == state.keyboard?.id else { return .none }
+                guard id == state.keyboard?.id, state.keyboard?.canConfigure == true else { return .none }
                 if let snapshot = state.currentSnapshot {
                     state.snapshotRevision &+= 1
                     state.snapshot = .loaded(snapshot.with(configuration: change.applied(to: snapshot.configuration)))
@@ -285,77 +204,41 @@ public struct MenuBarFeature: Sendable {
                 }
                 if state.snapshot.isLoading {
                     if case .configuration = change { state.pendingConfiguration = [change] }
-                    else {
-                        if case .profile(let profile) = change {
-                            state.pendingConfiguration.removeAll {
-                                if case .profile(let previous) = $0 { return previous.profile == profile.profile }
-                                return false
-                            }
-                        }
-                        state.pendingConfiguration.append(change)
-                    }
+                    else { state.pendingConfiguration.append(change) }
                 }
                 return .none
-
-            case .openInputMonitoringTapped:
-                return .run { _ in await accessClient.openAccessSettings() }
-
-            case .delegate:
-                return .none
+            case .openInputMonitoringTapped: return .run { _ in await accessClient.openAccessSettings() }
+            case .delegate: return .none
             }
         }
     }
 
-    /// 一个执行中事务 + 一个尚未执行的意图；只合并后者，不取消事务。
+    private func resetSnapshot(_ state: inout State) {
+        state.snapshotRevision &+= 1
+        state.snapshot = .idle
+        state.snapshotID = nil
+        state.pendingConfiguration = []
+        state.errorMessage = nil
+        state.lastUpdated = nil
+    }
+
     private func write(_ state: inout State, _ makePatch: (ProfileSettings) -> ProfilePatch) -> Effect<Action> {
-        guard let keyboard = state.keyboard, let snapshot = state.currentSnapshot,
-              let settings = state.desiredSettings, !state.isActivating else { return .none }
+        guard state.canConfigure, let configuration = state.desiredConfiguration else { return .none }
+        let settings = configuration.active.settings
         let patch = makePatch(settings)
-        let changes = ProfileField.differences(between: settings, and: patch.applied(to: settings))
-        guard !changes.isDisjoint(with: patch.fields) else { return .none }
-        let n = snapshot.configuration.activeProfile
-        if state.inFlightWrite != nil {
-            if case .patch(let queuedKeyboard, let profile, let queued) = state.queuedWrite,
-               queuedKeyboard.id == keyboard.id, profile == n {
-                state.queuedWrite = .patch(keyboard, n, queued.merging(patch))
-            } else {
-                if state.queuedWrite == nil { state.pendingWrites += 1 }
-                state.queuedWrite = .patch(keyboard, n, patch)
-            }
-            return .none
-        }
-        let request = PendingWrite.patch(keyboard, n, patch)
-        state.pendingWrites += 1
-        state.inFlightWrite = request
-        return execute(request)
+        guard !ProfileField.differences(between: settings, and: patch.applied(to: settings)).isDisjoint(with: patch.fields) else { return .none }
+        return submit(.update(configuration.activeProfile, patch: patch), state: &state)
     }
 
-    private func execute(_ request: PendingWrite) -> Effect<Action> {
-        switch request {
-        case .patch(let keyboard, let n, let patch):
-            return .run(origin: .menuBar) { send in
-                await send(.writeFinished(keyboard.id, Result { try await configurationClient.updateProfile(n, keyboard, patch) }))
-            }
-        case .activate(let keyboard, let n):
-            return .run(origin: .menuBar) { send in
-                await send(.activationFinished(keyboard.id, Result { try await configurationClient.activateProfile(n, keyboard) }))
-            }
-        }
-    }
-
-    private func startQueuedWrite(_ state: inout State) -> Effect<Action> {
-        guard let request = state.queuedWrite else { return .none }
-        state.queuedWrite = nil
-        guard request.keyboardID == state.keyboard?.id else {
-            state.pendingWrites = max(0, state.pendingWrites - 1)
-            return .none
-        }
-        state.inFlightWrite = request
-        return execute(request)
-    }
-
-    private func discardQueuedWrite(_ state: inout State) {
-        if state.queuedWrite != nil { state.pendingWrites = max(0, state.pendingWrites - 1) }
-        state.queuedWrite = nil
+    private func submit(_ intent: ConfigurationIntent, state: inout State) -> Effect<Action> {
+        guard let keyboard = state.keyboard, state.canConfigure else { return .none }
+        let requestID = uuid()
+        state.requestSequence &+= 1
+        state.requests.append(Request(id: requestID, keyboardID: keyboard.id, intent: intent, sequence: state.requestSequence))
+        state.snapshotRevision &+= 1
+        state.errorMessage = nil
+        return .merge(.cancel(id: CancelID.refresh), .run(origin: .menuBar) { send in
+            await send(.intentFinished(requestID, keyboard.id, Result { try await configurationClient.applyIntent(intent, keyboard) }))
+        })
     }
 }

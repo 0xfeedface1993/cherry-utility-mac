@@ -112,7 +112,7 @@ public struct KeyboardConfigurator: Sendable {
         }
     }
 
-    private func session<T: Sendable>(
+    func session<T: Sendable>(
         _ keyboard: KeyboardSummary, _ model: KeyboardModel, _ body: (VendorSession) async throws -> T
     ) async throws -> T {
         try await withChannel(channels, keyboard: keyboard.id, usagePage: model.vendorUsagePage, reportID: model.vendorReportID) {

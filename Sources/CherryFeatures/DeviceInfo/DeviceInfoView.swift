@@ -52,7 +52,7 @@ struct DeviceInfoView: View {
                 InfoRow("制造商", store.keyboard.manufacturer.isEmpty ? "—" : store.keyboard.manufacturer)
                 InfoRow("VID / PID", id: "info.vidpid", String(format: "0x%04X / 0x%04X", store.keyboard.id.vendorID, store.keyboard.id.productID))
                 InfoRow("固件版本", id: "info.firmware", "\(store.keyboard.firmwareVersion)  (bcdDevice 0x\(String(format: "%04X", store.keyboard.releaseNumber)))")
-                InfoRow("连接", id: "info.connection", "\(store.keyboard.transport) · Location 0x\(String(format: "%08X", store.keyboard.id.locationID))")
+                InfoRow("连接", id: "info.connection", "\(store.keyboard.transportDescription) · Location 0x\(String(format: "%08X", store.keyboard.id.locationID))")
                 if let serial = store.keyboard.serialNumber { InfoRow("序列号", serial) }
                 if let date = store.lastUpdated {
                     InfoRow("读取时间", date.formatted(date: .omitted, time: .standard))

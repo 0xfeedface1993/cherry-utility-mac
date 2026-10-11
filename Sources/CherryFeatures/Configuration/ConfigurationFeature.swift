@@ -44,6 +44,11 @@ public struct ConfigurationFeature: Sendable {
         public var selectedProfile: Int?
         public var editor: ProfileEditor?
         public var activatingProfile: Int?
+        var queuedActivation: Int?
+        var savingPatch: ProfilePatch?
+        var queuedSave: ProfilePatch?
+        var saveGeneration: UInt64 = 0
+        var activationGeneration: UInt64 = 0
         public var presets: Loadable<[ProfilePreset]> = .idle
         public var presetName = ""
         public var banner: Banner?
@@ -58,12 +63,19 @@ public struct ConfigurationFeature: Sendable {
         public var model: KeyboardModel? { keyboard.model }
         public var effects: [LightingEffect] { model?.lightingEffects ?? [] }
         public var profileCount: Int { model?.profileCount ?? 0 }
-        public var activeProfile: Int? { configuration.value?.activeProfile }
+        public var activeProfile: Int? { queuedActivation ?? activatingProfile ?? configuration.value?.activeProfile }
         public var selectedConfig: ProfileConfig? { selectedProfile.flatMap { configuration.value?.profile($0) } }
         public var isSaving: Bool { editor?.isSaving ?? false }
         public var hasUnsavedChanges: Bool { editor?.hasUnsavedChanges ?? false }
         public var isBusy: Bool { isSaving || activatingProfile != nil }
-        public var canEdit: Bool { isConnected && editor != nil && !isBusy }
+        public var canEdit: Bool { isConnected && keyboard.canConfigure && editor != nil }
+        public var canSubmit: Bool {
+            guard canEdit, let editor else { return false }
+            if let submitted = queuedSave ?? savingPatch {
+                return editor.draft != submitted.applied(to: editor.base)
+            }
+            return hasUnsavedChanges
+        }
     }
 
     public enum Action: BindableAction {
@@ -75,10 +87,10 @@ public struct ConfigurationFeature: Sendable {
         case keyboardUpdated(KeyboardSummary?)
         case selectProfile(Int)
         case activateProfile(Int)
-        case activationFinished(Result<KeyboardConfiguration, any Error>)
+        case activationFinished(Result<KeyboardConfiguration, any Error>, generation: UInt64? = nil)
         case edit(Edit)
         case saveTapped
-        case saveFinished(Result<ProfileConfig, any Error>)
+        case saveFinished(Result<ProfileConfig, any Error>, generation: UInt64? = nil)
         case discardTapped
         case presetsLoaded(Result<[ProfilePreset], any Error>)
         case savePresetTapped
@@ -188,14 +200,21 @@ public struct ConfigurationFeature: Sendable {
                 if let keyboard { state.keyboard = keyboard }
                 if !state.isConnected {
                     state.loadGeneration &+= 1
+                    state.saveGeneration &+= 1
+                    state.activationGeneration &+= 1
                     state.pendingProfiles = [:]
-                    return .cancel(id: CancelID.load)
+                    state.savingPatch = nil
+                    state.queuedSave = nil
+                    state.activatingProfile = nil
+                    state.queuedActivation = nil
+                    state.editor?.saveFailed()
+                    return .merge(.cancel(id: CancelID.load), .cancel(id: CancelID.save), .cancel(id: CancelID.activate))
                 }
                 return wasConnected ? .none : .send(.refresh)
 
             case .selectProfile(let n):
-                guard n != state.selectedProfile, !state.isBusy else { return .none }
-                if state.hasUnsavedChanges {
+                guard n != state.selectedProfile else { return .none }
+                if state.hasUnsavedChanges || state.isSaving {
                     state.alert = Self.discardAlert(switchingTo: n)
                     return .none
                 }
@@ -203,26 +222,28 @@ public struct ConfigurationFeature: Sendable {
                 return .none
 
             case .activateProfile(let n):
-                guard state.isConnected, !state.isBusy, n != state.activeProfile else { return .none }
-                state.activatingProfile = n
-                let keyboard = state.keyboard
-                return .run(origin: .configuration) { send in
-                    await send(.activationFinished(Result { try await client.activateProfile(n, keyboard) }))
+                guard state.isConnected, state.keyboard.canConfigure, (0..<state.profileCount).contains(n),
+                      n != state.activeProfile else { return .none }
+                if state.activatingProfile != nil {
+                    state.queuedActivation = n
+                    return .none
                 }
-                .cancellable(id: CancelID.activate)
+                return startActivation(n, state: &state)
 
-            case .activationFinished(.success(let configuration)):
+            case .activationFinished(.success(let configuration), let generation):
+                guard generation == nil || generation == state.activationGeneration, state.isConnected else { return .none }
                 state.configurationRevision &+= 1
                 state.activatingProfile = nil
                 state.configuration = .loaded(configuration)
                 syncEditor(&state)
                 state.banner = Banner(message: "已切换到配置 \(configuration.activeProfile + 1)", isError: false)
-                return .send(.delegate(.configurationChanged(state.keyboard.id, .configuration(configuration))))
+                return .merge(startQueuedActivation(&state), .send(.delegate(.configurationChanged(state.keyboard.id, .configuration(configuration)))))
 
-            case .activationFinished(.failure(let error)):
+            case .activationFinished(.failure(let error), let generation):
+                guard generation == nil || generation == state.activationGeneration, state.isConnected else { return .none }
                 state.activatingProfile = nil
                 state.banner = Banner(message: "切换配置失败：\(error.userMessage)", isError: true)
-                return .send(.refresh)
+                return .merge(startQueuedActivation(&state), .send(.refresh))
 
             case .edit(let edit):
                 guard state.canEdit else { return .none }
@@ -230,15 +251,17 @@ public struct ConfigurationFeature: Sendable {
                 return .none
 
             case .saveTapped:
-                guard state.isConnected, let profile = state.selectedProfile,
-                      let patch = state.editor?.beginSave() else { return .none }
-                let keyboard = state.keyboard
-                return .run(origin: .configuration) { send in
-                    await send(.saveFinished(Result { try await client.updateProfile(profile, keyboard, patch) }))
+                guard state.canSubmit, let editor = state.editor else { return .none }
+                if state.isSaving {
+                    // 改回原始值也必须提交，否则第一次写入仍会留下旧意图。
+                    let fields = editor.dirty.union(state.savingPatch?.fields ?? []).union(state.queuedSave?.fields ?? [])
+                    state.queuedSave = ProfilePatch(editor.draft, fields: fields)
+                    return .none
                 }
-                .cancellable(id: CancelID.save)
+                return startSave(&state)
 
-            case .saveFinished(.success(let saved)):
+            case .saveFinished(.success(let saved), let generation):
+                guard generation == nil || generation == state.saveGeneration, state.isConnected else { return .none }
                 state.configurationRevision &+= 1
                 if let configuration = state.configuration.value {
                     state.configuration = .loaded(configuration.replacing(saved))
@@ -246,16 +269,22 @@ public struct ConfigurationFeature: Sendable {
                 if saved.profile == state.selectedProfile {
                     state.editor?.saveSucceeded(saved.settings)
                 }
+                state.savingPatch = nil
                 state.banner = Banner(message: "已写入配置 \(saved.profile + 1)", isError: false)
-                return .send(.delegate(.configurationChanged(state.keyboard.id, .profile(saved))))
+                return .merge(startQueuedSave(&state), .send(.delegate(.configurationChanged(state.keyboard.id, .profile(saved)))))
 
-            case .saveFinished(.failure(let error)):
+            case .saveFinished(.failure(let error), let generation):
+                guard generation == nil || generation == state.saveGeneration, state.isConnected else { return .none }
                 state.editor?.saveFailed()
+                state.savingPatch = nil
                 state.banner = Banner(message: "写入失败：\(error.userMessage)", isError: true)
-                return .none
+                return startQueuedSave(&state)
 
             case .discardTapped:
                 let wasSaving = state.isSaving
+                state.saveGeneration &+= 1
+                state.savingPatch = nil
+                state.queuedSave = nil
                 state.editor?.discard()
                 // A cancelled save may or may not have reached the keyboard: re-read what it holds.
                 return wasSaving ? .merge(.cancel(id: CancelID.save), .send(.refresh)) : .none
@@ -308,9 +337,13 @@ public struct ConfigurationFeature: Sendable {
                 }
 
             case .alert(.presented(.discardAndSelect(let n))):
+                let wasSaving = state.isSaving
+                state.saveGeneration &+= 1
+                state.savingPatch = nil
+                state.queuedSave = nil
                 state.editor?.discard()
                 select(n, in: &state)
-                return .none
+                return wasSaving ? .merge(.cancel(id: CancelID.save), .send(.refresh)) : .none
 
             case .alert:
                 return .none
@@ -370,6 +403,55 @@ public struct ConfigurationFeature: Sendable {
             await send(.presetsLoaded(Result { try await presetClient.presets() }))
         }
         .cancellable(id: CancelID.presets, cancelInFlight: true)
+    }
+
+    private func startSave(_ state: inout State, including fields: Set<ProfileField> = []) -> Effect<Action> {
+        guard let profile = state.selectedProfile, let patch = state.editor?.beginSave(including: fields) else { return .none }
+        state.savingPatch = patch
+        state.saveGeneration &+= 1
+        let generation = state.saveGeneration
+        let keyboard = state.keyboard
+        return .run(origin: .configuration) { send in
+            let result = await Result { try await client.updateProfile(profile, keyboard, patch) }
+            guard !Task.isCancelled else { return }
+            await send(.saveFinished(result, generation: generation))
+        }.cancellable(id: CancelID.save)
+    }
+
+    private func startActivation(_ n: Int, state: inout State) -> Effect<Action> {
+        state.activatingProfile = n
+        state.activationGeneration &+= 1
+        let generation = state.activationGeneration
+        let keyboard = state.keyboard
+        return .run(origin: .configuration) { send in
+            let result = await Result { try await client.activateProfile(n, keyboard) }
+            guard !Task.isCancelled else { return }
+            await send(.activationFinished(result, generation: generation))
+        }.cancellable(id: CancelID.activate)
+    }
+
+    private func startQueuedActivation(_ state: inout State) -> Effect<Action> {
+        guard let profile = state.queuedActivation else { return .none }
+        state.queuedActivation = nil
+        return startActivation(profile, state: &state)
+    }
+
+    private func startQueuedSave(_ state: inout State) -> Effect<Action> {
+        guard let queued = state.queuedSave else { return .none }
+        state.queuedSave = nil
+        // 使用再次提交时冻结的值；提交后产生的草稿修改仍保留，不能被自动写入。
+        guard let profile = state.selectedProfile else { return .none }
+        let submitted = state.editor.map { queued.applied(to: $0.base) }
+        _ = state.editor?.beginSave(including: queued.fields, submitted: submitted)
+        state.savingPatch = queued
+        state.saveGeneration &+= 1
+        let generation = state.saveGeneration
+        let keyboard = state.keyboard
+        return .run(origin: .configuration) { send in
+            let result = await Result { try await client.updateProfile(profile, keyboard, queued) }
+            guard !Task.isCancelled else { return }
+            await send(.saveFinished(result, generation: generation))
+        }.cancellable(id: CancelID.save)
     }
 
     /// Points the editor at the selected profile (the active one by default) after the configuration changed.

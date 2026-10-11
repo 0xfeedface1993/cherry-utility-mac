@@ -27,7 +27,7 @@ struct ConfigurationView: View {
                 } label: {
                     Label("重新读取", systemImage: "arrow.clockwise")
                 }
-                .disabled(!store.isConnected || store.isBusy)
+                .disabled(!store.isConnected || !store.keyboard.canConfigure)
                 .accessibilityIdentifier("config.reload")
                 .help("从键盘重新读取配置")
             }
@@ -309,18 +309,12 @@ struct SaveBar: View {
         if presentation.hasUnsavedChanges || presentation.isSaving {
             HStack(spacing: 12) {
                 Image(systemName: "pencil.circle.fill").foregroundStyle(.orange)
-                Text(presentation.isSaving ? "正在写入键盘…" : "\(presentation.dirtyCount) 项修改尚未写入键盘")
+                Text(presentation.isSaving ? "正在配置键盘…可继续编辑" : "\(presentation.dirtyCount) 项修改尚未写入键盘")
                     .accessibilityIdentifier("savebar.status")
                 Spacer()
                 Button("放弃修改", role: .destructive, action: onDiscard)
                     .accessibilityIdentifier("savebar.discard")
-                Button(action: onSave) {
-                    if presentation.isSaving {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("写入键盘")
-                    }
-                }
+                Button("写入键盘", action: onSave)
                 .keyboardShortcut("s")
                 .buttonStyle(.borderedProminent)
                 .disabled(!presentation.canSave)
@@ -482,6 +476,6 @@ struct PresetDocument: FileDocument {
 }
 
 #Preview("Save bar") {
-    SaveBar(presentation: SaveBarPresentation(dirtyCount: 2, isSaving: false, isConnected: true), onSave: {}, onDiscard: {})
+    SaveBar(presentation: SaveBarPresentation(dirtyCount: 2, isSaving: false, isConnected: true, hasPendingEdits: true), onSave: {}, onDiscard: {})
         .frame(width: 600)
 }

@@ -57,7 +57,16 @@ public struct AppFeature: Sendable {
                     return menuBar
                 }
                 // The detail outlives a disconnect (an OTA reboots the keyboard mid-flow); children are told instead.
-                return .merge(menuBar, .send(.detail(.keyboardUpdated(state.keyboards[id: detail.keyboard.id]))))
+                let updated = state.keyboards[id: detail.keyboard.id]
+                // 快速重枚举可能把中间的空列表合并掉；接口身份变化仍必须结束旧会话。
+                if let updated, detail.keyboard.canConfigure, updated.canConfigure,
+                   updated.configurationInterfaceIDs != detail.keyboard.configurationInterfaceIDs {
+                    return .merge(menuBar, .concatenate(
+                        .send(.detail(.keyboardUpdated(nil))),
+                        .send(.detail(.keyboardUpdated(updated)))
+                    ))
+                }
+                return .merge(menuBar, .send(.detail(.keyboardUpdated(updated))))
 
             case .selectKeyboard(let id):
                 guard id != state.selectedID, state.detail?.isBusy != true else { return .none }

@@ -10,6 +10,8 @@ public struct ConfigurationClient: Sendable {
     public var activateProfile: @Sendable (_ profile: Int, _ keyboard: KeyboardSummary) async throws -> KeyboardConfiguration
     /// Writes only the patched fields of a profile and returns the block read back from the keyboard.
     public var updateProfile: @Sendable (_ profile: Int, _ keyboard: KeyboardSummary, _ patch: ProfilePatch) async throws -> ProfileConfig
+    /// Core 按设备串行、合并尚未执行的意图，返回经过校验的整批配置。
+    public var applyIntent: @Sendable (_ intent: ConfigurationIntent, _ keyboard: KeyboardSummary) async throws -> KeyboardConfiguration
 }
 
 /// Local preset library.
@@ -30,7 +32,8 @@ extension ConfigurationClient: TestDependencyKey {
         updateProfile: { n, _, patch in
             let current = KeyboardConfiguration.preview.profile(n) ?? KeyboardConfiguration.preview.active
             return try ProfileConfig(profile: n, raw: current.applying(patch))
-        }
+        },
+        applyIntent: { intent, _ in intent.applied(to: .preview) }
     )
 }
 

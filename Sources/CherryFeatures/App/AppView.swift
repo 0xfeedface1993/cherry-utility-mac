@@ -23,6 +23,7 @@ public struct AppView: View {
                 if let detail = store.detail, !detail.isConnected {
                     Section("已断开") {
                         KeyboardRow(keyboard: detail.keyboard).foregroundStyle(.secondary).tag(detail.keyboard.id)
+                            .accessibilityIdentifier("sidebar.disconnectedKeyboard")
                     }
                 }
             }
@@ -54,7 +55,7 @@ struct KeyboardRow: View {
                 .foregroundStyle(keyboard.model == nil ? Color.secondary : Color.accentColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text(keyboard.displayName).font(.headline)
-                Text("\(keyboard.transport) · 固件 \(keyboard.firmwareVersion.description)")
+                Text("\(keyboard.transportDescription) · 固件 \(keyboard.firmwareVersion.description)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -69,7 +70,7 @@ struct KeyboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !store.isConnected {
-                Label(store.isBusy ? "设备正在重启…" : "设备已断开，重新连接后会自动刷新", systemImage: "cable.connector.slash")
+                Label(store.firmware.isBusy ? "设备正在重启…" : "设备已断开，显示上次读取信息；重新连接后自动刷新", systemImage: "cable.connector.slash")
                     .accessibilityIdentifier("detail.disconnected")
                     .frame(maxWidth: .infinity)
                     .padding(8)

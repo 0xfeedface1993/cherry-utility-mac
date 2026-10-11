@@ -100,6 +100,14 @@ public struct KeyboardSummary: Equatable, Sendable, Identifiable {
     public var model: KeyboardModel? { KeyboardModel.matching(vendorID: id.vendorID, productID: id.productID) }
     public var firmwareVersion: FirmwareVersion { FirmwareVersion(code: releaseNumber) }
 
+    public var canConfigure: Bool {
+        model.map { hasInterface(usagePage: $0.vendorUsagePage) } ?? false
+    }
+    public var configurationInterfaceIDs: [UInt64] {
+        guard let model else { return [] }
+        return interfaces.filter { $0.has(usagePage: model.vendorUsagePage) }.map(\.id).sorted()
+    }
+
     public func hasInterface(usagePage: UInt16) -> Bool {
         interfaces.contains { $0.has(usagePage: usagePage) }
     }

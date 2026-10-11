@@ -76,6 +76,7 @@ final class LoopState: @unchecked Sendable {
     var diagnostics: Diagnostics = .noop
     var manager: IOHIDManager?
     var devices: [UInt64: IOHIDDevice] = [:]
+    private var inventory = HIDDiscoveryInventory<UInt>()
     var subscribers: [UUID: AsyncStream<[KeyboardSummary]>.Continuation] = [:]
     /// Interfaces with an open report channel (one report callback per IOHIDDevice).
     var busyInterfaces: Set<UInt64> = []
@@ -146,8 +147,8 @@ final class LoopState: @unchecked Sendable {
     }
 
     private func handleRemoval(_ device: IOHIDDevice) {
-        let id = HIDProperties.registryID(device)
         let key = Self.key(device)
+        guard let cached = inventory.remove(token: UInt(bitPattern: key)), let id = cached.interfaces.first?.id else { return }
         devices[id] = nil
         openCounts[id] = nil
         busyInterfaces.remove(id)
@@ -159,14 +160,28 @@ final class LoopState: @unchecked Sendable {
         publish()
     }
 
+    private func handleMatch(_ device: IOHIDDevice) {
+        let interface = HIDProperties.interfaceSummary(device)
+        devices[interface.id] = device
+        inventory.insert(KeyboardSummary(
+            id: HIDProperties.keyboardID(device),
+            product: HIDProperties.string(device, kIOHIDProductKey) ?? "CHERRY 键盘",
+            manufacturer: HIDProperties.string(device, kIOHIDManufacturerKey) ?? "",
+            serialNumber: HIDProperties.string(device, kIOHIDSerialNumberKey).flatMap { $0.isEmpty ? nil : $0 },
+            transport: HIDProperties.string(device, kIOHIDTransportKey) ?? "",
+            releaseNumber: UInt16(truncatingIfNeeded: HIDProperties.int(device, kIOHIDVersionNumberKey) ?? 0),
+            interfaces: [interface]
+        ), token: UInt(bitPattern: Self.key(device)))
+        publish()
+    }
+
     func start(loop: HIDEventLoop, vendorID: UInt16) {
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         IOHIDManagerSetDeviceMatching(manager, [kIOHIDVendorIDKey: Int(vendorID)] as CFDictionary)
         let context = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
             let state = Unmanaged<LoopState>.fromOpaque(context!).takeUnretainedValue()
-            state.devices[HIDProperties.registryID(device)] = device
-            state.publish()
+            state.handleMatch(device)
         }, context)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, device in
             Unmanaged<LoopState>.fromOpaque(context!).takeUnretainedValue().handleRemoval(device)
@@ -187,21 +202,7 @@ final class LoopState: @unchecked Sendable {
     }
 
     func summaries() -> [KeyboardSummary] {
-        let groups = Dictionary(grouping: devices.values) { HIDProperties.keyboardID($0) }
-        return groups.map { id, devices in
-            let sorted = devices.sorted { HIDProperties.registryID($0) < HIDProperties.registryID($1) }
-            let first = sorted[0]
-            return KeyboardSummary(
-                id: id,
-                product: HIDProperties.string(first, kIOHIDProductKey) ?? "Unknown",
-                manufacturer: HIDProperties.string(first, kIOHIDManufacturerKey) ?? "",
-                serialNumber: HIDProperties.string(first, kIOHIDSerialNumberKey).flatMap { $0.isEmpty ? nil : $0 },
-                transport: HIDProperties.string(first, kIOHIDTransportKey) ?? "?",
-                releaseNumber: UInt16(truncatingIfNeeded: HIDProperties.int(first, kIOHIDVersionNumberKey) ?? 0),
-                interfaces: sorted.map(HIDProperties.interfaceSummary)
-            )
-        }
-        .sorted { $0.id.locationID < $1.id.locationID }
+        inventory.summaries
     }
 
     func devices(of keyboard: KeyboardID) -> [IOHIDDevice] {

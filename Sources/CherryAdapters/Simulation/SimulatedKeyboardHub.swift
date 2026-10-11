@@ -14,6 +14,7 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
 
         public var device: Device = .pixiu75
         public var accessDenied = false
+        public var additionalDevice = false
         public var batteryPercent = 95
         public var charging = true
         public var wireless = false
@@ -29,6 +30,8 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
         public static func named(_ name: String) -> Scenario {
             var s = Scenario()
             switch name {
+            case "dual": s.additionalDevice = true
+            case "slow": s.replyDelay = .milliseconds(180)
             case "empty": s.device = .none
             case "unsupported": s.device = .unsupported
             case "denied": s.accessDenied = true
@@ -43,6 +46,7 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     }
 
     public static let keyboardID = KeyboardID(vendorID: 0x046A, productID: 0x01E2, locationID: 0x0310_0000)
+    public static let secondKeyboardID = KeyboardID(vendorID: 0x046A, productID: 0x01E2, locationID: 0x0320_0000)
     public static let unsupportedID = KeyboardID(vendorID: 0x046A, productID: 0x0999, locationID: 0x0320_0000)
     public static let initialCRC: UInt32 = 0xCFE1_A03E
 
@@ -82,8 +86,18 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     public let scenario: Scenario
     private let diagnostics: Diagnostics
     private let state: Mutex<State>
+    private let deviceID: KeyboardID
+    private let secondary: SimulatedKeyboardHub?
 
-    public init(scenario: Scenario = Scenario(), diagnostics: Diagnostics = .noop) {
+    public init(scenario: Scenario = Scenario(), diagnostics: Diagnostics = .noop, keyboardID: KeyboardID = SimulatedKeyboardHub.keyboardID) {
+        deviceID = keyboardID
+        if scenario.additionalDevice {
+            var secondScenario = scenario
+            secondScenario.additionalDevice = false
+            secondScenario.batteryPercent = 53
+            secondScenario.charging = false
+            secondary = SimulatedKeyboardHub(scenario: secondScenario, diagnostics: diagnostics, keyboardID: Self.secondKeyboardID)
+        } else { secondary = nil }
         self.scenario = scenario
         self.diagnostics = diagnostics
         state = Mutex(State(device: Device(
@@ -136,7 +150,8 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
             key.observation.finish(.disconnected)
             key.continuation.finish(throwing: CherryError.disconnected)
         }
-        for list in lists { list.yield([]) }
+        let remaining = secondary.map { hub in hub.state.withLock { hub.summaries($0.device) } } ?? []
+        for list in lists { list.yield(remaining) }
     }
 
     public func plug() {
@@ -188,7 +203,8 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     }
 
     private func summaries(_ device: Device) -> [KeyboardSummary] {
-        guard device.attached else { return [] }
+        let additional = secondary.map { hub in hub.state.withLock { hub.summaries($0.device) } } ?? []
+        guard device.attached else { return additional }
         switch scenario.device {
         case .none:
             return []
@@ -214,20 +230,23 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
                 ))
             }
             return [KeyboardSummary(
-                id: Self.keyboardID, product: "PIXIU 75", manufacturer: "CHERRY", serialNumber: nil,
+                id: deviceID, product: "PIXIU 75", manufacturer: "CHERRY", serialNumber: nil,
                 transport: scenario.wireless ? "Bluetooth Low Energy" : "USB", releaseNumber: device.releaseNumber, interfaces: interfaces
-            )]
+            )] + additional
         }
     }
 
     // MARK: ReportChannelProvider
 
     public func openChannel(keyboard: KeyboardID, usagePage: UInt16, reportID: UInt8) async throws -> any HIDReportChannel {
+        if let secondary, keyboard == secondary.deviceID {
+            return try await secondary.openChannel(keyboard: keyboard, usagePage: usagePage, reportID: reportID)
+        }
         let channel = SimulatedReportChannel(reportID: reportID, replyDelay: scenario.replyDelay) { [weak self] report in
             self?.handle(report, usagePage: usagePage) ?? []
         }
         try state.withLock { s in
-            guard s.device.attached, keyboard == Self.keyboardID || keyboard == Self.unsupportedID else { throw CherryError.deviceNotFound(keyboard) }
+            guard s.device.attached, keyboard == deviceID || keyboard == Self.unsupportedID else { throw CherryError.deviceNotFound(keyboard) }
             guard summaries(s.device).first?.hasInterface(usagePage: usagePage) == true else { throw CherryError.interfaceNotFound(usagePage: usagePage) }
             if scenario.accessDenied, usagePage == 0xFF1C { throw CherryError.accessDenied }
             s.channels[channel.id] = channel
@@ -239,6 +258,7 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     // MARK: KeyEventSource
 
     public func keyEvents(keyboard: KeyboardID) -> AsyncThrowingStream<Traced<KeyEvent>, any Error> {
+        if let secondary, keyboard == secondary.deviceID { return secondary.keyEvents(keyboard: keyboard) }
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: Traced<KeyEvent>.self, bufferingPolicy: .bufferingNewest(512))
         let id = UUID()
         let observation = KeyCaptureDiagnostics(diagnostics)

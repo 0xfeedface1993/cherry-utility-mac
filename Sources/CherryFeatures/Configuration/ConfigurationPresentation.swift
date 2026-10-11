@@ -41,9 +41,10 @@ struct SaveBarPresentation: Equatable {
     let dirtyCount: Int
     let isSaving: Bool
     let isConnected: Bool
+    let hasPendingEdits: Bool
 
     var hasUnsavedChanges: Bool { dirtyCount > 0 }
-    var canSave: Bool { hasUnsavedChanges && !isSaving && isConnected }
+    var canSave: Bool { hasPendingEdits && isConnected }
 }
 
 struct DeviceDetailsPresentation: Equatable {
@@ -82,12 +83,12 @@ extension ConfigurationFeature.State {
                     id: n,
                     title: "配置 \(n + 1)",
                     summary: config.map { "\(model?.effectName($0.lightingEffect) ?? "") · \(LightingText.brightness($0.brightness))" } ?? "—",
-                    isActive: configuration?.activeProfile == n,
+                    isActive: activeProfile == n,
                     isSelected: selectedProfile == n,
                     isActivating: activatingProfile == n
                 )
             },
-            isEnabled: isConnected && !isBusy
+            isEnabled: isConnected && keyboard.canConfigure
         )
     }
 
@@ -122,7 +123,7 @@ extension ConfigurationFeature.State {
     }
 
     var saveBarPresentation: SaveBarPresentation {
-        SaveBarPresentation(dirtyCount: editor?.dirty.count ?? 0, isSaving: isSaving, isConnected: isConnected)
+        SaveBarPresentation(dirtyCount: editor?.dirty.count ?? 0, isSaving: isSaving, isConnected: isConnected, hasPendingEdits: canSubmit)
     }
 
     /// Read-only fields of the selected block that this app does not edit.

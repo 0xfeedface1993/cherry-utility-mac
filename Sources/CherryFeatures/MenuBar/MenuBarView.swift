@@ -2,86 +2,6 @@ import CherryCore
 import ComposableArchitecture
 import SwiftUI
 
-// MARK: - Presentation
-
-struct MenuBarStatusPresentation: Equatable {
-    let deviceName: String
-    let connection: String
-    let batteryPercent: Int?
-    let isCharging: Bool
-    let firmware: String
-    let lightingSummary: String?
-    let updatedAt: String?
-}
-
-struct MenuBarLightingPresentation: Equatable {
-    let profiles: [ProfileChip]
-    let effects: [EffectOption]
-    let brightness: Int
-    let speed: Int
-    let color: LEDColor
-    let randomColor: Bool
-    let isEnabled: Bool
-    let isProfileEnabled: Bool
-
-    struct ProfileChip: Equatable, Identifiable {
-        let id: Int
-        let title: String
-        let isActive: Bool
-    }
-}
-
-extension DeviceStatusBlock.ConnectionMode {
-    var displayName: String {
-        switch self {
-        case .wired: "有线 USB"
-        case .wireless(let raw): "无线（模式值 \(raw)）"
-        case .unknown(let raw): "未知模式 \(raw)"
-        }
-    }
-}
-
-extension MenuBarFeature.State {
-    var statusPresentation: MenuBarStatusPresentation? {
-        guard let keyboard else { return nil }
-        let snapshot = currentSnapshot
-        let active = snapshot?.configuration.active
-        return MenuBarStatusPresentation(
-            deviceName: keyboard.displayName,
-            connection: snapshot?.status.mode.displayName ?? keyboard.transport,
-            batteryPercent: snapshot?.battery.percent,
-            isCharging: snapshot?.battery.charging == .charging,
-            firmware: keyboard.firmwareVersion.description,
-            lightingSummary: active.map {
-                "配置 \($0.profile + 1) · \(model?.effectName($0.lightingEffect) ?? "") · 亮度 \(LightingText.brightness($0.brightness))"
-            },
-            updatedAt: lastUpdated?.formatted(date: .omitted, time: .shortened)
-        )
-    }
-
-    var lightingPresentation: MenuBarLightingPresentation? {
-        guard let model, let snapshot = currentSnapshot else { return nil }
-        let active = desiredSettings ?? snapshot.configuration.active.settings
-        return MenuBarLightingPresentation(
-            profiles: (0..<model.profileCount).map { .init(id: $0, title: "\($0 + 1)", isActive: $0 == snapshot.configuration.activeProfile) },
-            effects: model.lightingEffects.map {
-                EffectOption(id: $0.rawValue, name: $0.name, symbol: $0.symbol, isSelected: $0.rawValue == active.effect)
-            },
-            brightness: min(active.brightness, 4),
-            speed: active.speed,
-            color: active.color,
-            randomColor: active.randomColor,
-            isEnabled: !isActivating,
-            isProfileEnabled: !isApplying
-        )
-    }
-
-    /// Text next to the status-item icon.
-    var labelText: String? {
-        currentSnapshot.map { "\($0.battery.percent)%" }
-    }
-}
-
 // MARK: - Status item label
 
 public struct MenuBarLabel: View {
@@ -124,13 +44,14 @@ public struct MenuBarPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             if store.keyboards.count > 1 {
                 Picker("设备", selection: Binding(get: { store.keyboard?.id }, set: { if let id = $0 { store.send(.selectKeyboard(id)) } })) {
-                    ForEach(store.keyboards) { Text($0.displayName).tag(Optional($0.id)) }
+                    ForEach(store.keyboards) { Text($0.selectionLabel).tag(Optional($0.id)) }
                 }
+                .pickerStyle(.menu)
                 .labelsHidden()
                 .accessibilityIdentifier("menubar.devicePicker")
             }
             if let status = store.statusPresentation {
-                StatusHeader(presentation: status, isLoading: store.snapshot.isLoading || store.isActivating)
+                StatusHeader(presentation: status, isLoading: store.snapshot.isLoading)
                 Divider()
                 if let lighting = store.lightingPresentation {
                     QuickLightingControls(
@@ -151,6 +72,17 @@ public struct MenuBarPanel: View {
                 } else if store.snapshot.isLoading {
                     ProgressView().frame(maxWidth: .infinity)
                 }
+                Label("正在配置键盘…", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .opacity(store.isApplying ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.15), value: store.isApplying)
+                    .accessibilityHidden(!store.isApplying)
+                    .accessibilityIdentifier("menubar.configuring")
+                if store.model != nil && store.keyboard?.canConfigure == false {
+                    Label("配置接口已断开，重新连接 USB 后可操作", systemImage: "cable.connector.slash")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("menubar.unavailable")
+                }
                 if let error = store.errorMessage {
                     ErrorNotice(message: error, showsSettingsButton: store.needsInputMonitoring) {
                         store.send(.openInputMonitoringTapped)
@@ -163,7 +95,7 @@ public struct MenuBarPanel: View {
             }
             Divider()
             PanelFooter(
-                canRefresh: store.keyboard != nil,
+                canRefresh: store.keyboard?.canConfigure == true,
                 onRefresh: { store.send(.refresh) },
                 onOpenMainWindow: onOpenMainWindow,
                 onQuit: onQuit,
@@ -237,6 +169,7 @@ struct QuickLightingControls: View {
                 .frame(width: 150)
                 .accessibilityIdentifier("menubar.profile")
                 .disabled(!presentation.isProfileEnabled)
+                .animation(.easeInOut(duration: 0.18), value: presentation.profiles)
             }
             Text("灯效").font(.subheadline.weight(.medium))
             EffectGrid(options: presentation.effects, columns: 4, compact: true, idPrefix: "menubar.effect", isEnabled: presentation.isEnabled, onSelect: onEffect)

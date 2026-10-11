@@ -9,24 +9,18 @@ import Testing
 @MainActor
 @Suite("界面声明观测来源")
 struct DiagnosticOriginFeatureTests {
-    @Test func menuBarWritesAndActivationsAreAttributedToTheMenuBar() async throws {
-        let seen = Mutex<[DiagnosticOrigin?]>([])
+    @Test func menuBarIntentsAreAttributedToTheMenuBar() async throws {
+        let log = OriginLog()
+        let record = log.record
         let store = TestStore(initialState: MenuBarBranchTests.loadedState()) { MenuBarFeature() } withDependencies: {
-            $0.configurationClient.updateProfile = { n, _, patch in
-                seen.withLock { $0.append(DiagnosticOrigin.current) }
-                return try ProfileConfig(profile: n, raw: KeyboardConfiguration.preview.profile(n)!.applying(patch))
-            }
-            $0.configurationClient.activateProfile = { n, _ in
-                seen.withLock { $0.append(DiagnosticOrigin.current) }
-                return try KeyboardConfiguration(activeProfile: n, profiles: KeyboardConfiguration.preview.profiles)
-            }
+            $0.uuid = .incrementing
+            $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.configurationClient.applyIntent = { _, _ in record("intent"); return .preview }
         }
         store.exhaustivity = .off
         await store.send(.setBrightness(0))
-        await store.receive(\.writeFinished)
-        await store.send(.activateProfile(0))
-        await store.receive(\.activationFinished)
-        #expect(seen.withLock { $0 } == [.menuBar, .menuBar])
+        await store.receive(\.intentFinished)
+        #expect(log.all == ["intent": .menuBar])
     }
 
     @Test func eachScreenAttributesItsOwnReads() async throws {

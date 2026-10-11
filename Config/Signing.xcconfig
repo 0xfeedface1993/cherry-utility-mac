@@ -1,0 +1,11 @@
+// Default: ad-hoc "Sign to Run Locally".
+// macOS ties the Input Monitoring grant to the code signature; an ad-hoc signature changes with every
+// build, so the key tester would need re-approval after each rebuild. To keep the grant, create
+// Config/Local.xcconfig (git-ignored) with your own identity, e.g.:
+//   CODE_SIGN_IDENTITY = Apple Development
+//   DEVELOPMENT_TEAM = ABCDE12345
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"

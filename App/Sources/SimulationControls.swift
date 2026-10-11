@@ -1,6 +1,7 @@
 import AppKit
 import CherryAdapters
 import CherryCore
+import CherrySimulation
 import SwiftUI
 
 /// Simulation-mode hooks: hot-plug commands and key input routed from AppKit into the simulated keyboard.

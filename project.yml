@@ -37,6 +37,8 @@ targets:
         product: CherryAdapters
       - package: CherryKit
         product: CherryFeatures
+      - package: CherryKit
+        product: CherrySimulation
       - package: ComposableArchitecture
     info:
       path: App/Info.plist
@@ -96,6 +98,7 @@ schemes:
         - package: CherryKit/CherryCoreTests
         - package: CherryKit/CherryAdaptersTests
         - package: CherryKit/CherryFeaturesTests
+        - package: CherryKit/CherrySimulationTests
         - CherryUtilityUITests
     archive:
       config: Release

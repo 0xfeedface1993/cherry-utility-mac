@@ -2,6 +2,7 @@ import AppKit
 import CherryAdapters
 import CherryCore
 import CherryFeatures
+import CherrySimulation
 import ComposableArchitecture
 import Foundation
 

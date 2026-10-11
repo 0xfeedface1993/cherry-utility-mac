@@ -1,0 +1,24 @@
+# 本包是独立 Git 仓库，需要自己的忽略规则
+# SwiftPM / Xcode 构建产物与本地状态
+.build/
+build/
+DerivedData/
+.swiftpm/
+*.xcresult
+*.xcarchive/
+*.dSYM/
+*.profraw
+*.profdata
+
+# Xcode 用户设置
+xcuserdata/
+*.xcuserstate
+
+# macOS 元数据与编辑器临时文件
+.DS_Store
+._*
+*.swp
+*.swo
+*~
+
+# 保留 Package.resolved、Package.swift、Sources/ 和 Tests/

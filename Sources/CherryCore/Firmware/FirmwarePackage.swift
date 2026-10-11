@@ -58,6 +58,16 @@ public struct FirmwarePackage: Equatable, Sendable, Identifiable {
     public static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
 }
 
+/// 升级包不能刷入当前设备的原因；界面文案在 CherryFeatures。
+public enum FirmwareIncompatibility: Hashable, Sendable {
+    /// 升级包的目标 VID/PID 与设备不同。
+    case targetMismatch(packageVendorID: UInt16, packageProductID: UInt16, deviceVendorID: UInt16, deviceProductID: UInt16)
+    /// 设备没有暴露 OTA 接口（通常处于无线模式）。
+    case missingOTAInterface(usagePage: UInt16)
+    /// 通道的输出报告装不下一个 OTA 报文。
+    case reportTooShort(length: Int, required: Int)
+}
+
 public enum FlashProgress: Equatable, Sendable {
     case started(totalReports: Int)
     case transferred(reports: Int, totalReports: Int, percent: Int)

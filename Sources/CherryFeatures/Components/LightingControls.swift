@@ -38,6 +38,33 @@ enum LightingText {
     }
 }
 
+extension KeyboardModel {
+    /// 灯效显示名；不在型号灯效表里的值显示原始编号。
+    func effectName(_ rawValue: UInt8) -> String {
+        effect(rawValue)?.name ?? String(format: "效果 0x%02X", rawValue)
+    }
+}
+
+extension LightingEffect {
+    /// SF Symbol；按驱动表里的英文名对应，未知灯效用通用图标。
+    var symbol: String {
+        switch englishName {
+        case "Wave": "water.waves"
+        case "Spectrum": "rainbow"
+        case "Breathing": "wind"
+        case "Rolling": "arrow.trianglehead.2.clockwise"
+        case "Curve": "point.topleft.down.to.point.bottomright.curvepath"
+        case "Scan": "arrow.left.and.right"
+        case "Radiation": "dot.radiowaves.left.and.right"
+        case "Ripples": "circle.dotted.circle"
+        case "Single Key": "hand.tap"
+        case "Static": "lightbulb"
+        case "Custom": "paintpalette"
+        default: "sparkles"
+        }
+    }
+}
+
 struct EffectOption: Equatable, Identifiable {
     let id: UInt8
     let name: String

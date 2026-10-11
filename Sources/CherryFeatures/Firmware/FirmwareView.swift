@@ -124,7 +124,7 @@ struct FirmwareView: View {
                     .foregroundStyle(.orange)
             }
             ForEach(store.incompatibilities, id: \.self) { problem in
-                Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                Label(problem.message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
                     .accessibilityIdentifier("firmware.problem")
             }
         }

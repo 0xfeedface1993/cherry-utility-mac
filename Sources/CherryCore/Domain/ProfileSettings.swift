@@ -28,13 +28,11 @@ public struct LightingEffect: Hashable, Sendable, Identifiable {
     public let rawValue: UInt8
     public let name: String
     public let englishName: String
-    public let symbol: String
 
-    public init(rawValue: UInt8, name: String, englishName: String, symbol: String) {
+    public init(rawValue: UInt8, name: String, englishName: String) {
         self.rawValue = rawValue
         self.name = name
         self.englishName = englishName
-        self.symbol = symbol
     }
 
     public var id: UInt8 { rawValue }

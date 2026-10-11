@@ -122,6 +122,7 @@ public struct ConfigurationFeature: Sendable {
 
     @Dependency(\.configurationClient) var client
     @Dependency(\.presetClient) var presetClient
+    @Dependency(\.date.now) var now
 
     public init() {}
 
@@ -295,7 +296,9 @@ public struct ConfigurationFeature: Sendable {
 
             case .savePresetTapped:
                 guard let settings = state.editor?.draft else { return .none }
-                let name = state.presetName
+                // 默认名称属于界面文案：未填写时按当前时间生成。
+                let typed = state.presetName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let name = typed.isEmpty ? "预设 \(now.formatted(date: .numeric, time: .shortened))" : typed
                 let keyboard = state.keyboard
                 return .run(origin: .configuration) { send in
                     await send(.presetSaved(Result { try await presetClient.save(name, settings, keyboard) }))

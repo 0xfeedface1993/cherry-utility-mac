@@ -242,7 +242,8 @@ public enum InputMonitoringStatus: Equatable, Sendable {
     case undetermined
 }
 
-public enum CherryError: Error, Equatable, Sendable, LocalizedError {
+/// 类型化错误；字符串关联值只是技术细节。界面文案在 CherryFeatures 的 ErrorPresentation。
+public enum CherryError: Error, Equatable, Sendable {
     case deviceNotFound(KeyboardID)
     case interfaceNotFound(usagePage: UInt16)
     case accessDenied
@@ -255,35 +256,11 @@ public enum CherryError: Error, Equatable, Sendable, LocalizedError {
     case unsupportedModel
     case firmwareFormat(String)
     case checksumMismatch(String)
-    case incompatibleFirmware(String)
+    case incompatibleFirmware([FirmwareIncompatibility])
     case otaFailed(status: UInt8)
     case network(String)
     case presetFormat(String)
     case unsupportedSetting(String)
     case writeNotApplied(String)
     case storage(String)
-
-    public var errorDescription: String? {
-        switch self {
-        case .deviceNotFound(let id): "未找到设备 \(id)"
-        case .interfaceNotFound(let page): String(format: "设备没有 UsagePage 0x%04X 接口（需用 USB 线有线连接）", page)
-        case .accessDenied: "没有“输入监控”权限：系统设置 → 隐私与安全性 → 输入监控，允许本应用后重新打开"
-        case .openFailed(let rc): String(format: "打开 HID 设备失败 (0x%08X)", UInt32(bitPattern: rc))
-        case .ioFailed(let s): "HID 通信失败：\(s)"
-        case .disconnected: "设备已断开"
-        case .timeout(let s): "超时：\(s)"
-        case .malformedReply(let s): "设备回复格式异常：\(s)"
-        case .deviceRejected(let c, let s): String(format: "设备拒绝命令 0x%02X（状态 0x%02X）", c, s)
-        case .unsupportedModel: "该型号尚未适配"
-        case .firmwareFormat(let s): "升级包格式错误：\(s)"
-        case .checksumMismatch(let s): "校验失败：\(s)"
-        case .incompatibleFirmware(let s): "升级包与设备不匹配：\(s)"
-        case .otaFailed(let s): "设备报告升级失败（状态 \(s)）"
-        case .network(let s): "网络错误：\(s)"
-        case .presetFormat(let s): "预设格式错误：\(s)"
-        case .unsupportedSetting(let s): "不支持的设置：\(s)"
-        case .writeNotApplied(let s): "写入未生效：\(s)"
-        case .storage(let s): "读写本地文件失败：\(s)"
-        }
-    }
 }

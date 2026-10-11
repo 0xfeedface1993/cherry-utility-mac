@@ -156,7 +156,7 @@ struct DeviceInfoFeatureTests {
         await store.receive(\.refresh)
         await store.finish()
         await store.skipReceivedActions()
-        #expect(store.state.vendor == .failed(CherryError.disconnected.errorDescription!))
+        #expect(store.state.vendor == .failed(CherryError.disconnected.message))
         #expect(store.state.latestRelease == .loaded(nil))
     }
 }

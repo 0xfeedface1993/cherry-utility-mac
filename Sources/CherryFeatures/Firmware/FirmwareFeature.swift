@@ -37,7 +37,7 @@ public struct FirmwareFeature: Sendable {
 
         public var isBusy: Bool { phase.isBusy }
 
-        public var incompatibilities: [String] {
+        public var incompatibilities: [FirmwareIncompatibility] {
             guard let package = package.value else { return [] }
             return FirmwareUpdateService.incompatibilities(of: package, with: keyboard)
         }

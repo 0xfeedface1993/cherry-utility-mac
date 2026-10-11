@@ -23,7 +23,7 @@ public struct TelinkOTAProtocol: Sendable {
         self.reportID = reportID
         self.reportLength = reportLength
         guard reportLength >= minimumReportLength else {
-            throw CherryError.incompatibleFirmware("输出报告长度 \(reportLength) 小于所需 \(minimumReportLength)")
+            throw CherryError.incompatibleFirmware([.reportTooShort(length: reportLength, required: minimumReportLength)])
         }
     }
 

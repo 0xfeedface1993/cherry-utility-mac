@@ -25,9 +25,3 @@ public enum Loadable<Value: Equatable>: Equatable {
         }
     }
 }
-
-extension Error {
-    var userMessage: String {
-        (self as? LocalizedError)?.errorDescription ?? localizedDescription
-    }
-}

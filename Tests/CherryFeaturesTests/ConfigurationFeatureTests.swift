@@ -240,6 +240,29 @@ struct ConfigurationFeatureTests {
         #expect(store.state.banner?.isError == true)
     }
 
+    /// 默认名称是界面文案：未填写名称时由 Feature 按当前时间生成，Core 只接收非空名称。
+    @Test func savingPresetWithoutNameUsesTimestampedDefault() async {
+        let names = Mutex<[String]>([])
+        let now = Date(timeIntervalSince1970: 1_791_000_000)
+        let store = TestStore(initialState: Self.loadedState()) {
+            ConfigurationFeature()
+        } withDependencies: {
+            $0.date.now = now
+            $0.presetClient.save = { name, settings, keyboard in
+                names.withLock { $0.append(name) }
+                return ProfilePreset(name: name, createdAt: now, productID: keyboard.id.productID, settings: settings)
+            }
+        }
+        store.exhaustivity = .off
+        await store.send(.binding(.set(\.presetName, "  \n ")))
+        await store.send(.savePresetTapped)
+        await store.receive(\.presetSaved)
+        await store.send(.binding(.set(\.presetName, "  游戏 ")))
+        await store.send(.savePresetTapped)
+        await store.receive(\.presetSaved)
+        #expect(names.withLock { $0 } == ["预设 \(now.formatted(date: .numeric, time: .shortened))", "游戏"])
+    }
+
     @Test func savingPresetUsesDraftAndPrependsIt() async {
         let saved = Mutex<ProfileSettings?>(nil)
         let store = TestStore(initialState: Self.loadedState()) {

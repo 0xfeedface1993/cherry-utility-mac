@@ -192,11 +192,11 @@ struct PresetStorageTests {
         #expect(saved.isCompatible(with: keyboard))
         let imported = try await library.importPreset(saved.encoded())
         #expect(imported.id != saved.id && imported.settings == saved.settings)
-        let unnamed = try await library.save(name: " \n ", settings: settings, from: keyboard)
-        #expect(unnamed.name.hasPrefix("预设 "))
-        #expect(try await library.presets().count == 3)
-        try await library.delete(id: imported.id)
+        // 默认名称由界面生成；Core 不接受空名称。
+        await #expect(throws: CherryError.presetFormat("预设名称为空")) { try await library.save(name: " \n ", settings: settings, from: keyboard) }
         #expect(try await library.presets().count == 2)
+        try await library.delete(id: imported.id)
+        #expect(try await library.presets().count == 1)
         #expect(throws: CherryError.presetFormat("无法解析预设文件")) { try ProfilePreset.decode(Data()) }
     }
 

@@ -161,28 +161,23 @@ public struct KeyboardModel: Equatable, Sendable {
     public func effect(_ rawValue: UInt8) -> LightingEffect? {
         lightingEffects.first { $0.rawValue == rawValue }
     }
-
-    /// Display name of an effect value, falling back to the raw value for effects outside the table.
-    public func effectName(_ rawValue: UInt8) -> String {
-        effect(rawValue)?.name ?? String(format: "效果 0x%02X", rawValue)
-    }
 }
 
 extension LightingEffect {
     /// CHERRY Utility `DefaultData/default_light.json`, table 51 (= the model's DeviceIndex 0x33), visible entries only;
     /// names from the driver's `lan_cn.xml` / `lan_en.xml`.
     public static let pixiu75: [LightingEffect] = [
-        LightingEffect(rawValue: 0, name: "波纹", englishName: "Wave", symbol: "water.waves"),
-        LightingEffect(rawValue: 1, name: "光谱", englishName: "Spectrum", symbol: "rainbow"),
-        LightingEffect(rawValue: 2, name: "呼吸", englishName: "Breathing", symbol: "wind"),
-        LightingEffect(rawValue: 10, name: "霓虹", englishName: "Rolling", symbol: "arrow.trianglehead.2.clockwise"),
-        LightingEffect(rawValue: 12, name: "曲线", englishName: "Curve", symbol: "point.topleft.down.to.point.bottomright.curvepath"),
-        LightingEffect(rawValue: 15, name: "折返", englishName: "Scan", symbol: "arrow.left.and.right"),
-        LightingEffect(rawValue: 18, name: "放射", englishName: "Radiation", symbol: "dot.radiowaves.left.and.right"),
-        LightingEffect(rawValue: 19, name: "扩散", englishName: "Ripples", symbol: "circle.dotted.circle"),
-        LightingEffect(rawValue: 21, name: "单点亮", englishName: "Single Key", symbol: "hand.tap"),
-        LightingEffect(rawValue: 3, name: "常亮", englishName: "Static", symbol: "lightbulb"),
-        LightingEffect(rawValue: 8, name: "自定义", englishName: "Custom", symbol: "paintpalette"),
+        LightingEffect(rawValue: 0, name: "波纹", englishName: "Wave"),
+        LightingEffect(rawValue: 1, name: "光谱", englishName: "Spectrum"),
+        LightingEffect(rawValue: 2, name: "呼吸", englishName: "Breathing"),
+        LightingEffect(rawValue: 10, name: "霓虹", englishName: "Rolling"),
+        LightingEffect(rawValue: 12, name: "曲线", englishName: "Curve"),
+        LightingEffect(rawValue: 15, name: "折返", englishName: "Scan"),
+        LightingEffect(rawValue: 18, name: "放射", englishName: "Radiation"),
+        LightingEffect(rawValue: 19, name: "扩散", englishName: "Ripples"),
+        LightingEffect(rawValue: 21, name: "单点亮", englishName: "Single Key"),
+        LightingEffect(rawValue: 3, name: "常亮", englishName: "Static"),
+        LightingEffect(rawValue: 8, name: "自定义", englishName: "Custom"),
     ]
 }
 

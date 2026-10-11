@@ -135,11 +135,12 @@ public struct PresetLibrary: Sendable {
         try await store.presets()
     }
 
+    /// 名称由调用方给出（默认名称属于界面文案）；去掉首尾空白后不能为空。
     public func save(name: String, settings: ProfileSettings, from keyboard: KeyboardSummary) async throws -> ProfilePreset {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw CherryError.presetFormat("预设名称为空") }
         let preset = ProfilePreset(
-            name: trimmed.isEmpty ? "预设 \(now().formatted(date: .numeric, time: .shortened))" : trimmed,
-            createdAt: now(), productID: keyboard.id.productID, settings: settings.normalized
+            name: trimmed, createdAt: now(), productID: keyboard.id.productID, settings: settings.normalized
         )
         try await store.save(preset)
         return preset
@@ -218,17 +219,15 @@ public struct FirmwareUpdateService: Sendable {
     }
 
     /// Reasons the package must not be flashed onto `keyboard` (empty = compatible).
-    public static func incompatibilities(of package: FirmwarePackage, with keyboard: KeyboardSummary) -> [String] {
-        var problems: [String] = []
+    public static func incompatibilities(of package: FirmwarePackage, with keyboard: KeyboardSummary) -> [FirmwareIncompatibility] {
+        var problems: [FirmwareIncompatibility] = []
         let image = package.image
         if image.vendorID != keyboard.id.vendorID || image.productID != keyboard.id.productID {
-            problems.append(String(
-                format: "升级包目标 %04X:%04X，设备为 %04X:%04X", image.vendorID, image.productID,
-                keyboard.id.vendorID, keyboard.id.productID
-            ))
+            problems.append(.targetMismatch(packageVendorID: image.vendorID, packageProductID: image.productID,
+                                            deviceVendorID: keyboard.id.vendorID, deviceProductID: keyboard.id.productID))
         }
         if !keyboard.hasInterface(usagePage: image.usagePage) {
-            problems.append(String(format: "设备未暴露 OTA 接口 UsagePage 0x%04X（请切换到有线模式并用 USB 线连接）", image.usagePage))
+            problems.append(.missingOTAInterface(usagePage: image.usagePage))
         }
         return problems
     }
@@ -246,7 +245,7 @@ public struct FirmwareUpdateService: Sendable {
         progress: @Sendable (FlashProgress) async -> Void
     ) async throws -> FlashOutcome {
         let problems = Self.incompatibilities(of: package, with: keyboard)
-        guard problems.isEmpty else { throw CherryError.incompatibleFirmware(problems.joined(separator: "；")) }
+        guard problems.isEmpty else { throw CherryError.incompatibleFirmware(problems) }
         let image = package.image
         let timeouts = self.timeouts
         return try await withChannel(channels, keyboard: keyboard.id, usagePage: image.usagePage, reportID: image.reportID) {

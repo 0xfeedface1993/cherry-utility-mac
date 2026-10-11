@@ -22,11 +22,11 @@ struct ArchitectureTests {
         text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
     }
 
-    /// 观测词表只定义操作和结果；OSLog 命名、界面文案、平台错误识别分别属于适配器和 Features。
-    @Test func coreDiagnosticsHoldNoAdapterOrPresentationDetails() throws {
+    /// Core 只定义类型与规则；OSLog 命名、错误文案、图标、本地化格式、平台错误识别分别属于适配器和 Features。
+    @Test func coreHoldsNoAdapterOrPresentationDetails() throws {
         for (name, text) in try Self.files("CherryCore") {
             let code = Self.code(text)
-            for token in ["StaticString", "signpost", "URLError", "var title", "var message"] {
+            for token in ["StaticString", "signpost", "URLError", "var title", "var message", "LocalizedError", "errorDescription", ".formatted(", "symbol"] {
                 #expect(!code.contains(token), "CherryCore/\(name) 含有 \(token)")
             }
         }

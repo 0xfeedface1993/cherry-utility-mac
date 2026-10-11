@@ -26,5 +26,25 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Unofficial macOS companion for CHERRY keyboards.</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>CHERRY Utility 配置预设</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.local.cherry.utility.profile</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>cherryprofile</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

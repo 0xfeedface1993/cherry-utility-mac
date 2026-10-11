@@ -168,6 +168,8 @@ public struct FirmwareUpdateService: Sendable {
     let diagnostics: Diagnostics
     let discovery: any KeyboardDiscoveryPort
     let timeouts: FirmwareFlasher.Timeouts
+    /// 重连轮询的时间来源；测试可注入不真实等待的时钟。
+    let clock: any Clock<Duration>
 
     public init(
         catalog: any FirmwareCatalogPort,
@@ -175,7 +177,8 @@ public struct FirmwareUpdateService: Sendable {
         channels: any ReportChannelProvider,
         discovery: any KeyboardDiscoveryPort,
         timeouts: FirmwareFlasher.Timeouts = .init(),
-        diagnostics: Diagnostics = .noop
+        diagnostics: Diagnostics = .noop,
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.catalog = catalog
         self.downloader = downloader
@@ -183,6 +186,7 @@ public struct FirmwareUpdateService: Sendable {
         self.diagnostics = diagnostics
         self.discovery = discovery
         self.timeouts = timeouts
+        self.clock = clock
     }
 
     /// Newest catalog entry for the keyboard itself (excludes `_DONGLE` / `_POKEMON` siblings).
@@ -260,22 +264,27 @@ public struct FirmwareUpdateService: Sendable {
         timeout: Duration = .seconds(60),
         pollInterval: Duration = .seconds(1)
     ) async throws -> DeviceFirmwareStatus {
-        let deadline = ContinuousClock.now + timeout
+        // 截止判断与等待用同一个注入的时钟：累计每轮（等待 + 探测）在该时钟上的耗时。
+        var elapsed = Duration.zero
         var lastError: any Error = CherryError.timeout("设备未重新连接")
-        while ContinuousClock.now < deadline {
+        while elapsed < timeout {
             try Task.checkCancellation()
-            try await Task.sleep(for: pollInterval)
-            let present = await discovery.keyboards().contains {
-                $0.id == keyboard && $0.hasInterface(usagePage: package.image.usagePage)
+            var status: DeviceFirmwareStatus?
+            elapsed += try await clock.measure {
+                try await clock.sleep(for: pollInterval)
+                let present = await discovery.keyboards().contains {
+                    $0.id == keyboard && $0.hasInterface(usagePage: package.image.usagePage)
+                }
+                guard present else { return }
+                do {
+                    status = try await deviceFirmware(keyboard: keyboard, package: package)
+                } catch {
+                    // Cancellation must end the wait; any other failure is retried until the deadline.
+                    if error is CancellationError { throw error }
+                    lastError = error
+                }
             }
-            guard present else { continue }
-            do {
-                return try await deviceFirmware(keyboard: keyboard, package: package)
-            } catch {
-                // Cancellation must end the wait; any other failure is retried until the deadline.
-                if error is CancellationError { throw error }
-                lastError = error
-            }
+            if let status { return status }
         }
         throw lastError
     }

@@ -15,7 +15,8 @@ public struct CoreServices: Sendable {
         catalog: any FirmwareCatalogPort,
         downloader: any FirmwareDownloadPort,
         timeouts: FirmwareFlasher.Timeouts = .init(),
-        diagnostics: Diagnostics = .noop
+        diagnostics: Diagnostics = .noop,
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         // 每个键盘接口一个队列：菜单栏、各页面和固件页轮流使用，而不是因“接口被占用”失败。
         let channels = ExclusiveChannelProvider(base: base, diagnostics: diagnostics)
@@ -24,7 +25,7 @@ public struct CoreServices: Sendable {
         writer = KeyboardConfigurationWriter(configurator: configurator)
         firmware = FirmwareUpdateService(
             catalog: catalog, downloader: downloader, channels: channels, discovery: discovery,
-            timeouts: timeouts, diagnostics: diagnostics
+            timeouts: timeouts, diagnostics: diagnostics, clock: clock
         )
         self.discovery = discovery
     }

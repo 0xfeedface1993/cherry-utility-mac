@@ -9,13 +9,15 @@ public final class DiagnosticExporter: Sendable {
     private let environment: DiagnosticEnvironment
     private let directory: URL
     private let configuration: DiagnosticPolicyConfiguration
+    private let wallClock: @Sendable () -> Date
     private let queue = DispatchQueue(label: "dev.local.cherry.utility.diagnostic-export", qos: .utility)
     private let active = Mutex(false)
     private let packaging = Mutex(false)
 
     public init(journal: DiagnosticJournal, directory: URL, environment: DiagnosticEnvironment,
-                configuration: DiagnosticPolicyConfiguration = .init()) {
+                configuration: DiagnosticPolicyConfiguration = .init(), wallClock: @escaping @Sendable () -> Date = Date.init) {
         self.journal = journal; self.directory = directory; self.environment = environment; self.configuration = configuration
+        self.wallClock = wallClock
     }
 
     public func export(range: DiagnosticRange, includeSystemLog: Bool = true) async throws -> DiagnosticExport {
@@ -34,7 +36,8 @@ public final class DiagnosticExporter: Sendable {
             journalStatus = "unavailable"
         }
         try Task.checkCancellation()
-        let since = range == .currentRun ? (snapshot.records.map(\.wallTimeUTC).min() ?? Date()) : Date().addingTimeInterval(-Double(range.rawValue))
+        let now = wallClock()
+        let since = range == .currentRun ? (snapshot.records.map(\.wallTimeUTC).min() ?? now) : now.addingTimeInterval(-Double(range.rawValue))
         let system = includeSystemLog ? await logs.read(since: since, runID: journal.runID, cutoff: snapshot.cutoff) : SystemLogSnapshot(status: "not_requested")
         try Task.checkCancellation()
         let elapsed = Double(DiagnosticClock.nanoseconds(start.duration(to: .now))) / 1_000_000_000
@@ -53,7 +56,7 @@ public final class DiagnosticExporter: Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         for url in try temporaryPackages() {
-            if (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast < Date().addingTimeInterval(-configuration.exportRetention) {
+            if (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast < wallClock().addingTimeInterval(-configuration.exportRetention) {
                 try? FileManager.default.removeItem(at: url)
             }
         }
@@ -91,7 +94,7 @@ public final class DiagnosticExporter: Sendable {
         let files = entries.map { DiagnosticManifest.File(name: $0.0, bytes: $0.1.count, sha256: SHA256.hash(data: $0.1).map { String(format: "%02x", $0) }.joined()) }
         let manifest = DiagnosticManifest(retentionDays: journal.limits.retention / 86400, journalLimitBytes: journal.limits.totalBytes,
             temporaryExportLimitBytes: configuration.exportBytes, detailSampleDivisor: max(1, configuration.detailSampleDivisor),
-            exportID: id, environment: environment, requestedRange: range, generatedAt: Date(),
+            exportID: id, environment: environment, requestedRange: range, generatedAt: wallClock(),
             actualStart: snapshot.records.map(\.wallTimeUTC).min(), actualEnd: snapshot.records.map(\.wallTimeUTC).max(),
             runIDs: Array(Set(snapshot.records.map(\.runID))).sorted { $0.uuidString < $1.uuidString }, cutoff: snapshot.cutoff,
             events: snapshot.records.count, dropped: snapshot.dropped, pendingUnflushed: journalStatus == "available" ? 0 : pending,
@@ -102,7 +105,8 @@ public final class DiagnosticExporter: Sendable {
         // 临时导出总量与单包共用 exportBytes 上限，按最旧包淘汰；用户另存的文件不在这里。
         let packages = try temporaryPackages()
         var total = packages.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
-        for old in packages where old != url && total > configuration.exportBytes {
+        // 列举结果可能带 /private 前缀，按文件名排除刚写好的包。
+        for old in packages where old.lastPathComponent != url.lastPathComponent && total > configuration.exportBytes {
             let size = (try? old.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             try FileManager.default.removeItem(at: old); total -= size
         }

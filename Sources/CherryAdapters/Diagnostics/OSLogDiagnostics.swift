@@ -7,6 +7,7 @@ import Synchronization
 public final class OSLogDiagnostics: Sendable {
     public static let subsystem = "dev.local.cherry.utility"
     private let clock: DiagnosticClock
+    private let wallClock: @Sendable () -> Date
     private let outputs: [String: Output]
     private let sink: @Sendable (DiagnosticEvent) -> Void
     private let journal: DiagnosticJournal?
@@ -21,9 +22,10 @@ public final class OSLogDiagnostics: Sendable {
     }
 
     public init(mode: DiagnosticMode = .standard, clock: DiagnosticClock = .continuous(), journal: DiagnosticJournal? = nil,
-                configuration: DiagnosticPolicyConfiguration = .init(), sink: @escaping @Sendable (DiagnosticEvent) -> Void = { _ in }) {
-        self.clock = clock; self.sink = sink; self.journal = journal
-        policy = DiagnosticPolicy(mode: mode, clock: clock, configuration: configuration)
+                configuration: DiagnosticPolicyConfiguration = .init(), wallClock: @escaping @Sendable () -> Date = Date.init,
+                sink: @escaping @Sendable (DiagnosticEvent) -> Void = { _ in }) {
+        self.clock = clock; self.sink = sink; self.journal = journal; self.wallClock = wallClock
+        policy = DiagnosticPolicy(mode: mode, clock: clock, configuration: configuration, wallClock: wallClock)
         outputs = Dictionary(uniqueKeysWithValues: Set(DiagnosticOperation.allCases.map(\.category)).map {
             let logger = Logger(subsystem: Self.subsystem, category: $0)
             // 通用 Points of Interest 模板可直接捕获；日志仍按业务 category 分组。
@@ -75,7 +77,8 @@ public final class OSLogDiagnostics: Sendable {
     }
 
     private func publish(_ event: DiagnosticEvent) {
-        let record = journal?.append(event) ?? DiagnosticRecord(runID: runID, sequence: sequence.withLock { $0 &+= 1; return $0 }, event: event)
+        let record = journal?.append(event)
+            ?? DiagnosticRecord(runID: runID, sequence: sequence.withLock { $0 &+= 1; return $0 }, wallTimeUTC: wallClock(), event: event)
         let recordID = record.recordID
         let logger = outputs[event.operation.category]!.logger
         let op = event.operation.rawValue, phase = event.phase.rawValue

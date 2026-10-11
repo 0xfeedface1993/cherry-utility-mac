@@ -15,6 +15,7 @@ final class ServicePorts: ReportChannelProvider, KeyboardDiscoveryPort, Firmware
         self.channels = channels; self.lists = lists; self.entries = entries; self.data = data
     }
     var opens: Int { counts.withLock { $0.opens } }
+    var polls: Int { counts.withLock { $0.polls } }
     func openChannel(keyboard: KeyboardID, usagePage: UInt16, reportID: UInt8) async throws -> any HIDReportChannel {
         let index = counts.withLock { c in defer { c.opens += 1 }; return c.opens }
         guard !channels.isEmpty else { throw CherryError.deviceNotFound(keyboard) }

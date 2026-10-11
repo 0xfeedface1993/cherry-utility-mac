@@ -30,18 +30,21 @@ public final class DiagnosticJournal: Sendable {
     let state = Mutex(State())
     let limits: DiagnosticJournalLimits
     let writer: DiagnosticJournalWriter
+    /// 记录时间、保留期与导出范围的墙钟；测试可注入固定时间。
+    let wallClock: @Sendable () -> Date
     private let snapshotBusy = Mutex(false)
 
-    public init(directory: URL, runID: UUID = UUID(), limits: DiagnosticJournalLimits = .init()) {
-        self.runID = runID; self.limits = limits
-        writer = DiagnosticJournalWriter(directory: directory, runID: runID, limits: limits)
+    public init(directory: URL, runID: UUID = UUID(), limits: DiagnosticJournalLimits = .init(),
+                wallClock: @escaping @Sendable () -> Date = Date.init) {
+        self.runID = runID; self.limits = limits; self.wallClock = wallClock
+        writer = DiagnosticJournalWriter(directory: directory, runID: runID, limits: limits, wallClock: wallClock)
     }
 
     @discardableResult
     public func append(_ event: DiagnosticEvent) -> DiagnosticRecord {
         let result = state.withLock { s -> (DiagnosticRecord, Bool) in
             s.sequence &+= 1
-            let record = DiagnosticRecord(runID: runID, sequence: s.sequence, event: event)
+            let record = DiagnosticRecord(runID: runID, sequence: s.sequence, wallTimeUTC: wallClock(), event: event)
             if event.metrics.buckets?.count ?? 0 > 12 { s.dropped &+= 1; return (record, false) }
             if event.isImportant {
                 if s.important.count >= max(1, limits.importantCapacity) { s.important.removeFirst(); s.dropped &+= 1 }
@@ -105,7 +108,7 @@ public final class DiagnosticJournal: Sendable {
             var snapshot = (try? writer.snapshot(range: range, cutoff: cutoff, dropped: status.dropped, cancellation: cancellation))
                 ?? .init(records: [], cutoff: cutoff, dropped: status.dropped, recoveredLines: 0, truncated: true)
             try cancellation.check()
-            let since = Date().addingTimeInterval(-Double(range.rawValue))
+            let since = wallClock().addingTimeInterval(-Double(range.rawValue))
             let memory = state.withLock { s in (s.normal + s.important).filter { $0.sequence <= cutoff && (range == .currentRun || $0.wallTimeUTC >= since) } }
             var ids = Set(snapshot.records.map(\.recordID))
             snapshot.records += memory.filter { ids.insert($0.recordID).inserted }

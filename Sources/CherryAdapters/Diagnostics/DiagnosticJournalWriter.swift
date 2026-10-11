@@ -7,6 +7,7 @@ final class DiagnosticJournalWriter: @unchecked Sendable {
     let directory: URL
     let runID: UUID
     let limits: DiagnosticJournalLimits
+    let wallClock: @Sendable () -> Date
     private var file: FileHandle?
     private var current: URL?
     private var size = 0
@@ -22,9 +23,11 @@ final class DiagnosticJournalWriter: @unchecked Sendable {
     private var evictedCurrentRun = false
     private var eventBudget: Int { max(1, limits.totalBytes - 256) }
     private var coverageURL: URL { directory.appendingPathComponent("coverage.json") }
+    /// 目录列举返回解析过符号链接的路径（/private/var/…），不能与自己拼出的 URL 直接比较；同目录内按文件名区分。
+    private func isActiveSegment(_ url: URL) -> Bool { url.lastPathComponent == current?.lastPathComponent }
 
-    init(directory: URL, runID: UUID, limits: DiagnosticJournalLimits) {
-        self.directory = directory; self.runID = runID; self.limits = limits
+    init(directory: URL, runID: UUID, limits: DiagnosticJournalLimits, wallClock: @escaping @Sendable () -> Date = Date.init) {
+        self.directory = directory; self.runID = runID; self.limits = limits; self.wallClock = wallClock
     }
 
     deinit { try? file?.close() }
@@ -65,7 +68,7 @@ final class DiagnosticJournalWriter: @unchecked Sendable {
     private func rotate() throws {
         try file?.close(); file = nil
         index += 1
-        let timestamp = String(format: "%020.0f", Date().timeIntervalSince1970 * 1000)
+        let timestamp = String(format: "%020.0f", wallClock().timeIntervalSince1970 * 1000)
         let url = directory.appendingPathComponent("events-\(timestamp)-\(runID.uuidString)-\(index).ndjson")
         guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw DiagnosticExportError.storage }
         current = url; size = 0; file = try FileHandle(forWritingTo: url)
@@ -74,11 +77,11 @@ final class DiagnosticJournalWriter: @unchecked Sendable {
     @discardableResult private func prune() throws -> Int {
         let files = try segments()
         var total = files.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
-        let oldest = Date().addingTimeInterval(-limits.retention)
-        for url in files where url != current {
+        let oldest = wallClock().addingTimeInterval(-limits.retention)
+        for url in files where !isActiveSegment(url) {
             let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
             if total > eventBudget || (values.contentModificationDate ?? .distantPast) < oldest {
-                try recordEviction(url, modified: values.contentModificationDate ?? Date())
+                try recordEviction(url, modified: values.contentModificationDate ?? wallClock())
                 try FileManager.default.removeItem(at: url); total -= values.fileSize ?? 0
             }
         }
@@ -99,9 +102,9 @@ final class DiagnosticJournalWriter: @unchecked Sendable {
     }
 
     func write(_ records: [DiagnosticRecord]) throws -> (written: Int, oversized: Int, bytes: Int) {
-        guard Date() >= retryAfter else { throw DiagnosticExportError.storage }
+        guard wallClock() >= retryAfter else { throw DiagnosticExportError.storage }
         do { return try writeBatch(records) }
-        catch { retryAfter = Date().addingTimeInterval(10); throw error }
+        catch { retryAfter = wallClock().addingTimeInterval(10); throw error }
     }
 
     private func writeBatch(_ records: [DiagnosticRecord]) throws -> (written: Int, oversized: Int, bytes: Int) {
@@ -116,9 +119,9 @@ final class DiagnosticJournalWriter: @unchecked Sendable {
             if file == nil || size + data.count > limits.segmentBytes { try rotate() }
             // 在写入前腾出空间，当前 segment 的大小同样计入总预算。
             if total + data.count > eventBudget {
-                for url in try segments() where url != current {
+                for url in try segments() where !isActiveSegment(url) {
                     let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                    let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+                    let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? wallClock()
                     try recordEviction(url, modified: modified)
                     try FileManager.default.removeItem(at: url); total -= bytes
                     if total + data.count <= eventBudget { break }
@@ -133,7 +136,7 @@ final class DiagnosticJournalWriter: @unchecked Sendable {
 
     func snapshot(range: DiagnosticRange, cutoff: UInt64, dropped: UInt64, cancellation: DiagnosticCancellation) throws -> DiagnosticJournalSnapshot {
         try prepare()
-        let since = Date().addingTimeInterval(-Double(range.rawValue))
+        let since = wallClock().addingTimeInterval(-Double(range.rawValue))
         let decoder = DiagnosticRecord.decoder()
         var records: [DiagnosticRecord] = [], bytes = 0
         var truncated = range == .currentRun ? evictedCurrentRun : (coverage?.evictedThrough ?? .distantPast) >= since

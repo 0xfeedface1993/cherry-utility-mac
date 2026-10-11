@@ -207,6 +207,79 @@ struct DiagnosticPolicyConfigurationTests {
     }
 }
 
+/// 墙钟由调用方注入：保留期、导出范围与临时包过期都能按指定时间验证。
+@Suite("注入的墙钟")
+struct DiagnosticWallClockTests {
+    static func directory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("CherryDiagnostics-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+    static func event(_ op: DiagnosticOperation = .launch) -> DiagnosticEvent {
+        .init(operation: op, phase: .summary, context: TraceContext(), elapsedNs: 1)
+    }
+    static func segments(_ dir: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil).filter { $0.pathExtension == "ndjson" }
+    }
+
+    @Test func dayRangeKeepsOnlyRecordsFromTheLast24Hours() async throws {
+        let dir = try Self.directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        let now = Date()
+        let wall = Mutex(now.addingTimeInterval(-25 * 3600))
+        let journal = DiagnosticJournal(directory: dir, wallClock: { wall.withLock { $0 } })
+        let old = journal.append(Self.event())
+        wall.withLock { $0 = now }
+        let recent = journal.append(Self.event(.modeChange))
+        try await journal.flush()
+        #expect(try await journal.snapshot(range: .day).records.map(\.recordID) == [recent.recordID])
+        #expect(try await journal.snapshot(range: .currentRun).records.map(\.recordID) == [old.recordID, recent.recordID])
+    }
+
+    @Test func retentionEvictsSegmentsOlderThanSevenDays() async throws {
+        let dir = try Self.directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        let first = DiagnosticJournal(directory: dir)
+        first.append(Self.event()); try await first.flush()
+        #expect(try Self.segments(dir).count == 1)
+        let later = DiagnosticJournal(directory: dir, wallClock: { Date().addingTimeInterval(8 * 86400) })
+        later.append(Self.event()); try await later.flush()
+        let remaining = try Self.segments(dir)
+        #expect(remaining.count == 1 && remaining.allSatisfy { $0.lastPathComponent.contains(later.runID.uuidString) })
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("coverage.json").path))
+    }
+
+    /// 临时目录经过 /var → /private/var 符号链接；容量淘汰不能删掉正在写入的分段。
+    /// 当前分段独占全部容量时，超出的记录应被计为丢弃，已写入的记录必须保留在磁盘上。
+    @Test func budgetEvictionKeepsTheSegmentBeingWritten() async throws {
+        let dir = try Self.directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        var limits = DiagnosticJournalLimits(); limits.segmentBytes = 3000; limits.totalBytes = 3000
+        let journal = DiagnosticJournal(directory: dir, limits: limits)
+        for _ in 0..<30 { journal.append(Self.event()) }
+        try await journal.flush()
+        #expect(try Self.segments(dir).count == 1)
+        #expect(journal.status.dropped > 0)
+        #expect(try await journal.snapshot(range: .currentRun).records.count > 0)
+    }
+
+    @Test func expiredTemporaryPackagesAreRemovedOnTheNextExport() async throws {
+        let dir = try Self.directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        let environment = DiagnosticEnvironment(appVersion: "1.0", appBuild: "1", simulated: true)
+        let today = DiagnosticsRuntime(directory: dir, environment: environment)
+        today.port.emit(.launch)
+        let stale = try await today.export(range: .currentRun, includeSystemLog: false)
+        let twoDaysLater = DiagnosticsRuntime(directory: dir, environment: environment, wallClock: { Date().addingTimeInterval(2 * 86400) })
+        twoDaysLater.port.emit(.launch)
+        let fresh = try await twoDaysLater.export(range: .currentRun, includeSystemLog: false)
+        #expect(!FileManager.default.fileExists(atPath: stale.url.path))
+        #expect(FileManager.default.fileExists(atPath: fresh.url.path))
+    }
+
+    @Test func detailedModeShowsItsExpiryOnTheWallClock() {
+        let fixed = Date(timeIntervalSince1970: 1_791_000_000)
+        let policy = DiagnosticPolicy(mode: .detailed, clock: .init(now: { 0 }), wallClock: { fixed })
+        #expect(policy.status.1 == fixed.addingTimeInterval(900))
+    }
+}
+
 @Suite("高频统计口径")
 struct DiagnosticAggregateTests {
     @Test func sampledAndUnsampledSpansBothCountOnceAndSeparateFailures() {

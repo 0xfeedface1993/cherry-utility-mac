@@ -43,19 +43,22 @@ final class DiagnosticPolicy: Sendable {
     }
     private let state: Mutex<State>
     private let clock: DiagnosticClock
+    /// 到期判断用单调时钟；`wallClock` 只用于给界面显示到期时刻。
+    private let wallClock: @Sendable () -> Date
     let configuration: DiagnosticPolicyConfiguration
 
-    init(mode: DiagnosticMode, clock: DiagnosticClock, configuration: DiagnosticPolicyConfiguration = .init()) {
-        self.clock = clock; self.configuration = configuration; state = Mutex(State(mode: mode))
+    init(mode: DiagnosticMode, clock: DiagnosticClock, configuration: DiagnosticPolicyConfiguration = .init(),
+         wallClock: @escaping @Sendable () -> Date = Date.init) {
+        self.clock = clock; self.configuration = configuration; self.wallClock = wallClock; state = Mutex(State(mode: mode))
         set(mode)
     }
 
     func set(_ mode: DiagnosticMode) {
         let duration = configuration.duration(of: mode)
-        let now = clock.now()
+        let now = clock.now(), wall = wallClock()
         state.withLock {
             $0.mode = mode
-            $0.expires = duration.map { Date().addingTimeInterval(Double(DiagnosticClock.nanoseconds($0)) / 1_000_000_000) }
+            $0.expires = duration.map { wall.addingTimeInterval(Double(DiagnosticClock.nanoseconds($0)) / 1_000_000_000) }
             $0.deadline = duration.map { now &+ DiagnosticClock.nanoseconds($0) }
         }
     }

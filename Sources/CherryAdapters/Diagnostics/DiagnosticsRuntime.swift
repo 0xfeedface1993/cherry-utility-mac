@@ -9,12 +9,12 @@ public final class DiagnosticsRuntime: Sendable {
     public var port: Diagnostics { logger.port }
 
     public init(directory: URL, environment: DiagnosticEnvironment, mode: DiagnosticMode = .standard,
-                configuration: DiagnosticPolicyConfiguration = .init()) {
-        let journal = DiagnosticJournal(directory: directory, limits: configuration.journal)
+                configuration: DiagnosticPolicyConfiguration = .init(), wallClock: @escaping @Sendable () -> Date = Date.init) {
+        let journal = DiagnosticJournal(directory: directory, limits: configuration.journal, wallClock: wallClock)
         self.journal = journal
-        logger = OSLogDiagnostics(mode: mode, journal: journal, configuration: configuration)
+        logger = OSLogDiagnostics(mode: mode, journal: journal, configuration: configuration, wallClock: wallClock)
         exporter = DiagnosticExporter(journal: journal, directory: directory.appendingPathComponent("Exports", isDirectory: true),
-                                      environment: environment, configuration: configuration)
+                                      environment: environment, configuration: configuration, wallClock: wallClock)
     }
 
     public var status: DiagnosticStatus {

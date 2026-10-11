@@ -43,32 +43,51 @@ struct ServiceBranchTests {
     static func package() throws -> FirmwarePackage {
         FirmwarePackage(source: .localFile(URL(fileURLWithPath: "/tmp/test.exe")), fileMD5: "AA", image: try TestFirmware.updaterImage(size: 320))
     }
-    static func service(_ ports: ServicePorts) -> FirmwareUpdateService {
-        FirmwareUpdateService(catalog: ports, downloader: ports, channels: ports, discovery: ports, timeouts: fast)
+    static func service(_ ports: ServicePorts, _ recorder: DiagnosticRecorder = DiagnosticRecorder(.off)) -> FirmwareUpdateService {
+        FirmwareUpdateService(catalog: ports, downloader: ports, channels: ExclusiveChannelProvider(base: ports, diagnostics: recorder.port),
+                              discovery: ports, timeouts: fast, diagnostics: recorder.port)
     }
 
-    @Test func inspectorReadsAndClosesEveryChannel() async throws {
+    static func inspector(_ ports: ServicePorts, _ recorder: DiagnosticRecorder) -> KeyboardInspector {
+        KeyboardInspector(channels: ExclusiveChannelProvider(base: ports, diagnostics: recorder.port), diagnostics: recorder.port)
+    }
+
+    @Test(arguments: Observation.allCases)
+    func inspectorReadsAndClosesEveryChannel(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let vendor = SimulatedChannel(inputReportIDs: [4], respond: VendorSessionTests.device)
         let ports = ServicePorts(channels: [vendor])
-        let inspector = KeyboardInspector(channels: ports)
+        let inspector = Self.inspector(ports, recorder)
         #expect(try await inspector.battery(of: Self.keyboard).percent == 87)
         let snapshot = try await inspector.vendorSnapshot(of: Self.keyboard)
         #expect(snapshot.profile.profile == 1)
         #expect(vendor.isClosed && ports.opens == 2)
         let device = SimulatedOTADevice(currentCRC: 0xAABB_CCDD)
         let ota = SimulatedChannel(inputReportIDs: [5], respond: device.respond)
-        #expect(try await KeyboardInspector(channels: ServicePorts(channels: [ota])).firmwareStatus(of: Self.keyboard).crc == 0xAABB_CCDD)
+        #expect(try await Self.inspector(ServicePorts(channels: [ota]), recorder).firmwareStatus(of: Self.keyboard).crc == 0xAABB_CCDD)
         #expect(ota.isClosed)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.battery).count == 1 && recorder.finished(.snapshot).count == 1)
+            #expect(recorder.finished(.firmwareStatus).map(\.outcome) == [.success])
+        }
     }
 
-    @Test func channelClosesAfterReadFailureAndUnsupportedModelDoesNotOpen() async throws {
+    @Test(arguments: Observation.allCases)
+    func channelClosesAfterReadFailureAndUnsupportedModelDoesNotOpen(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let channel = SimulatedChannel(inputReportIDs: [4]) { _ in .disconnect }
         let ports = ServicePorts(channels: [channel])
-        await #expect(throws: CherryError.disconnected) { try await KeyboardInspector(channels: ports).battery(of: Self.keyboard) }
+        await #expect(throws: CherryError.disconnected) { try await Self.inspector(ports, recorder).battery(of: Self.keyboard) }
         #expect(channel.isClosed)
         let unknown = KeyboardSummary(id: KeyboardID(vendorID: 1, productID: 1, locationID: 1), product: "Unknown", manufacturer: "", serialNumber: nil, transport: "USB", releaseNumber: 0, interfaces: [])
-        await #expect(throws: CherryError.unsupportedModel) { try await KeyboardInspector(channels: ports).battery(of: unknown) }
+        await #expect(throws: CherryError.unsupportedModel) { try await Self.inspector(ports, recorder).battery(of: unknown) }
         #expect(ports.opens == 1)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.battery).map(\.failure) == [.disconnected, .unsupportedModel])
+            #expect(recorder.finished(.channelHeld).map(\.outcome) == [.success])
+        }
     }
 
     @Test func missingOTAInterfacePreventsOpeningOrFlashing() async throws {
@@ -80,32 +99,46 @@ struct ServiceBranchTests {
         #expect(ports.opens == 0)
     }
 
-    @Test func compatibleFlashClosesChannelAndVerifiesAfterReconnectRetry() async throws {
+    @Test(arguments: Observation.allCases)
+    func compatibleFlashClosesChannelAndVerifiesAfterReconnectRetry(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let device = SimulatedOTADevice(currentCRC: 0xAABB_CCDD)
         let flash = SimulatedChannel(inputReportIDs: [5], respond: device.respond)
         let ports = ServicePorts(channels: [flash])
-        #expect(try await Self.service(ports).flash(keyboard: Self.keyboard, package: Self.package()) { _ in } == .confirmed)
+        #expect(try await Self.service(ports, recorder).flash(keyboard: Self.keyboard, package: Self.package()) { _ in } == .confirmed)
         #expect(flash.isClosed)
         let failure = SimulatedChannel(inputReportIDs: [5]) { _ in .disconnect }
         let success = SimulatedChannel(inputReportIDs: [5], respond: device.respond)
         let retry = ServicePorts(channels: [failure, success], lists: [[], [Self.keyboard]])
-        let status = try await Self.service(retry).verifyAfterFlash(keyboard: Self.keyboard.id, package: Self.package(), timeout: .seconds(1), pollInterval: .milliseconds(1))
+        let status = try await Self.service(retry, recorder).verifyAfterFlash(keyboard: Self.keyboard.id, package: Self.package(), timeout: .seconds(1), pollInterval: .milliseconds(1))
         #expect(status.crc == 0xAABB_CCDD)
         #expect(retry.opens == 2 && failure.isClosed && success.isClosed)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.firmwareFlash).map(\.outcome) == [.success])
+            #expect(recorder.finished(.reconnectionVerify).map(\.outcome) == [.success])
+            #expect(recorder.finished(.firmwareStatus).map(\.outcome) == [.disconnected, .success])
+        }
     }
 
-    @Test func reconnectTimeoutAndCancellationEndVerification() async throws {
+    @Test(arguments: Observation.allCases)
+    func reconnectTimeoutAndCancellationEndVerification(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let ports = ServicePorts(channels: [])
         let package = try Self.package()
         await #expect(throws: CherryError.self) {
-            try await Self.service(ports).verifyAfterFlash(keyboard: Self.keyboard.id, package: package, timeout: .zero)
+            try await Self.service(ports, recorder).verifyAfterFlash(keyboard: Self.keyboard.id, package: package, timeout: .zero)
         }
         let task = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            return try await Self.service(ports).verifyAfterFlash(keyboard: Self.keyboard.id, package: package)
+            return try await Self.service(ports, recorder).verifyAfterFlash(keyboard: Self.keyboard.id, package: package)
         }
         await #expect(throws: CancellationError.self) { try await task.value }
         #expect(ports.opens == 0)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.reconnectionVerify).map(\.outcome) == [.timeout, .cancelled])
+        }
     }
 
     @Test func downloadValidatesHashAndExtractsSyntheticUpdater() async throws {
@@ -122,13 +155,22 @@ struct ServiceBranchTests {
         #expect(FirmwareUpdateService.latestRelease(for: .pixiu75, in: []) == nil)
     }
 
-    @Test func dataAckTimeoutAndMissingFinalResultHaveDifferentOutcomes() async throws {
+    @Test(arguments: Observation.allCases)
+    func dataAckTimeoutAndMissingFinalResultHaveDifferentOutcomes(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let package = try Self.package()
         let noDataAck = SimulatedChannel(inputReportIDs: [5]) { r in .reports(r[2] == 2 ? [r] : []) }
-        await #expect(throws: CherryError.self) { try await FirmwareFlasher(channel: noDataAck, reportID: 5, timeouts: Self.fast).flash(package.image) { _ in } }
+        await #expect(throws: CherryError.self) {
+            try await FirmwareFlasher(channel: noDataAck, reportID: 5, timeouts: Self.fast, diagnostics: recorder.port).flash(package.image) { _ in }
+        }
         #expect(noDataAck.sentCount == 2)
         let noResult = SimulatedChannel(inputReportIDs: [5]) { r in .reports(r[2] == 6 ? [] : [r]) }
-        #expect(try await FirmwareFlasher(channel: noResult, reportID: 5, timeouts: Self.fast).flash(package.image) { _ in } == .unconfirmed)
+        #expect(try await FirmwareFlasher(channel: noResult, reportID: 5, timeouts: Self.fast, diagnostics: recorder.port).flash(package.image) { _ in } == .unconfirmed)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.otaTransfer).map(\.outcome) == [.timeout, .unconfirmed])
+            #expect(recorder.finished(.otaACK).filter { $0.outcome == .timeout }.count == 2)
+        }
     }
 
     @Test func versionQuerySkipsNoiseAndTimesOutWithoutValidVersion() async throws {

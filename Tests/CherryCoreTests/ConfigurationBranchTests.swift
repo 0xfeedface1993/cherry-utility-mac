@@ -90,10 +90,17 @@ struct ConfigurationBranchTests {
         #expect(config.replacing(zero).profile(1) == one)
     }
 
-    @Test func configuratorWritesOnlyRequestedSettingsAndReadsBack() async throws {
+    /// 与组合根相同的栈：独占通道 + 配置服务共用同一个观测端口。
+    static func configurator(_ ports: ServicePorts, _ recorder: DiagnosticRecorder) -> KeyboardConfigurator {
+        KeyboardConfigurator(channels: ExclusiveChannelProvider(base: ports, diagnostics: recorder.port), diagnostics: recorder.port)
+    }
+
+    @Test(arguments: Observation.allCases)
+    func configuratorWritesOnlyRequestedSettingsAndReadsBack(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let device = ConfigurationDevice()
         let channel = SimulatedChannel(inputReportIDs: [4], respond: device.respond)
-        let configurator = KeyboardConfigurator(channels: ServicePorts(channels: [channel]))
+        let configurator = Self.configurator(ServicePorts(channels: [channel]), recorder)
         let initial = try await configurator.configuration(of: ServiceBranchTests.keyboard)
         #expect(initial.activeProfile == 1 && initial.profiles.count == 3)
         let active = try await configurator.activateProfile(2, on: ServiceBranchTests.keyboard)
@@ -104,40 +111,66 @@ struct ConfigurationBranchTests {
         let commands = device.state.withLock { $0.commands }
         #expect(commands.filter { $0 == 1 }.count == 2 && commands.filter { $0 == 2 }.count == 2)
         #expect(channel.isClosed)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.configurationWrite).map(\.outcome) == [.success])
+            #expect(recorder.finished(.configurationBegin).count == 2 && recorder.finished(.configurationEnd).count == 2)
+        }
     }
 
-    @Test func writeRejectionStillEndsTransactionAndClosesChannel() async throws {
+    @Test(arguments: Observation.allCases)
+    func writeRejectionStillEndsTransactionAndClosesChannel(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let device = ConfigurationDevice()
         device.state.withLock { $0.rejectWrites = true }
         let channel = SimulatedChannel(inputReportIDs: [4], respond: device.respond)
         await #expect(throws: CherryError.deviceRejected(command: 6, status: 0xFF)) {
-            try await KeyboardConfigurator(channels: ServicePorts(channels: [channel])).activateProfile(2, on: ServiceBranchTests.keyboard)
+            try await Self.configurator(ServicePorts(channels: [channel]), recorder).activateProfile(2, on: ServiceBranchTests.keyboard)
         }
         #expect(device.state.withLock { $0.commands } == [1, 6, 2])
         #expect(channel.isClosed)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.profileActivate).map(\.failure) == [.deviceRejected])
+            #expect(recorder.finished(.configurationEnd).map(\.outcome) == [.success])
+        }
     }
 
-    @Test func unchangedPatchSendsNoWriteAndUnsupportedValuesDoNotOpenChannel() async throws {
+    @Test(arguments: Observation.allCases)
+    func unchangedPatchSendsNoWriteAndUnsupportedValuesDoNotOpenChannel(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let device = ConfigurationDevice()
         let channel = SimulatedChannel(inputReportIDs: [4], respond: device.respond)
         let ports = ServicePorts(channels: [channel])
-        let configurator = KeyboardConfigurator(channels: ports)
+        let configurator = Self.configurator(ports, recorder)
         _ = try await configurator.update(profile: 1, on: ServiceBranchTests.keyboard, patch: ProfilePatch(Self.settings, fields: []))
         #expect(!device.state.withLock { $0.commands }.contains(6))
         await #expect(throws: CherryError.self) { try await configurator.activateProfile(-1, on: ServiceBranchTests.keyboard) }
         var bad = Self.settings; bad.effect = 0xFF
         await #expect(throws: CherryError.self) { try await configurator.update(profile: 1, on: ServiceBranchTests.keyboard, patch: ProfilePatch(bad, fields: [.effect])) }
         #expect(ports.opens == 1)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.configurationWrite).map(\.outcome) == [.noChange, .failed])
+            #expect(recorder.finished(.profileActivate).map(\.failure) == [.unsupportedSetting])
+        }
     }
 
-    @Test func readBackMismatchIsRejected() async throws {
+    @Test(arguments: Observation.allCases)
+    func readBackMismatchIsRejected(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let device = ConfigurationDevice()
         device.state.withLock { $0.ignoreWrites = true }
         let channel = SimulatedChannel(inputReportIDs: [4], respond: device.respond)
-        let configurator = KeyboardConfigurator(channels: ServicePorts(channels: [channel]))
+        let configurator = Self.configurator(ServicePorts(channels: [channel]), recorder)
         await #expect(throws: CherryError.self) { try await configurator.activateProfile(2, on: ServiceBranchTests.keyboard) }
         let patch = ProfilePatch.set(\.brightness, 4, field: .brightness, on: Self.settings)
         await #expect(throws: CherryError.self) { try await configurator.update(profile: 1, on: ServiceBranchTests.keyboard, patch: patch) }
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.profileActivate).map(\.failure) == [.writeNotApplied])
+            #expect(recorder.finished(.configurationWrite).map(\.failure) == [.writeNotApplied])
+        }
     }
 
     @Test func gateCancellationDoesNotStealOrLeakOwnership() async throws {

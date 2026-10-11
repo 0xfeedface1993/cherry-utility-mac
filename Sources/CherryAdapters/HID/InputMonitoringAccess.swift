@@ -17,7 +17,7 @@ public struct InputMonitoringAccess: InputMonitoringPort {
 
     public func request() async -> Bool {
         let granted = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
-        diagnostics.emit(.permission, origin: .keytest, outcome: granted ? .success : .failed)
+        diagnostics.emit(.permission, outcome: granted ? .success : .failed)
         return granted
     }
 }

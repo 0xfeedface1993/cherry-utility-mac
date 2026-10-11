@@ -91,8 +91,8 @@ public struct DeviceInfoFeature: Sendable {
                 if state.latestRelease.value == nil { state.latestRelease = .loading }
                 return .merge(
                     // Sequential: both channels are short-lived, and this keeps a single HID exchange in flight.
-                    .run { send in
-                        let span = diagnostics.begin(.refresh, origin: .deviceInfo)
+                    .run(origin: .deviceInfo) { send in
+                        let span = diagnostics.begin(.refresh)
                         await TraceContext.$current.withValue(span.context) {
                             let vendor = await Result { try await keyboardClient.vendorSnapshot(keyboard) }
                             let firmware = await Result { try await keyboardClient.firmwareStatus(keyboard) }
@@ -105,7 +105,7 @@ public struct DeviceInfoFeature: Sendable {
                         }
                     }
                     .cancellable(id: CancelID.refresh, cancelInFlight: true),
-                    .run { send in
+                    .run(origin: .deviceInfo) { send in
                         let result = await Result { try await firmwareClient.latestRelease(model) }
                         guard !Task.isCancelled else { return }
                         await send(.releaseLoaded(result, keyboard: keyboard.id, generation: generation))
@@ -117,8 +117,8 @@ public struct DeviceInfoFeature: Sendable {
                 guard state.isConnected, state.keyboard.model != nil, !state.vendor.isLoading,
                       state.vendor.value != nil else { return .none }
                 let keyboard = state.keyboard
-                return .run { send in
-                    let result = await Result { try await diagnostics.measure(.refresh, origin: .deviceInfo) {
+                return .run(origin: .deviceInfo) { send in
+                    let result = await Result { try await diagnostics.measure(.refresh) {
                         try await keyboardClient.battery(keyboard)
                     } }
                     guard !Task.isCancelled else { return }

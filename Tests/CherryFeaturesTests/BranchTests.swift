@@ -151,7 +151,7 @@ struct BranchTests {
     }
 
     @Test func captureFailureReleasesPressedKeysAndSuppression() async {
-        let (stream, continuation) = AsyncThrowingStream.makeStream(of: KeyEvent.self)
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: Traced<KeyEvent>.self)
         var state = KeyTestFeature.State(keyboard: .preview)
         state.access = .granted
         state.pressed = [.keyboard(4)]

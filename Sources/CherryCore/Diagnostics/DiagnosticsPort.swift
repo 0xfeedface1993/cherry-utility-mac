@@ -16,18 +16,18 @@ public struct Diagnostics: Sendable {
     public static let noop = Diagnostics(isEnabled: { false }, now: { 0 }, begin: { _, _, _, _ in .disabled }, emit: { _, _, _, _, _ in })
 
     public func begin(_ operation: DiagnosticOperation, context: TraceContext? = TraceContext.current,
-                      origin: DiagnosticOrigin = .background, metrics: DiagnosticMetrics = .init()) -> DiagnosticSpan {
+                      origin: DiagnosticOrigin = DiagnosticOrigin.current ?? .background, metrics: DiagnosticMetrics = .init()) -> DiagnosticSpan {
         guard isEnabled() else { return .disabled }
         return beginImpl(operation, context, origin, metrics)
     }
 
     public func emit(_ operation: DiagnosticOperation, context: TraceContext? = TraceContext.current,
-                     origin: DiagnosticOrigin = .background, outcome: DiagnosticOutcome? = nil, metrics: DiagnosticMetrics = .init()) {
+                     origin: DiagnosticOrigin = DiagnosticOrigin.current ?? .background, outcome: DiagnosticOutcome? = nil, metrics: DiagnosticMetrics = .init()) {
         guard isEnabled() else { return }
         emitImpl(operation, context, origin, outcome, metrics)
     }
 
-    public func measure<T>(_ operation: DiagnosticOperation, origin: DiagnosticOrigin = .background,
+    public func measure<T>(_ operation: DiagnosticOperation, origin: DiagnosticOrigin = DiagnosticOrigin.current ?? .background,
                            metrics: DiagnosticMetrics = .init(), _ body: () throws -> T) rethrows -> T {
         guard isEnabled() else { return try body() }
         let span = begin(operation, origin: origin, metrics: metrics)
@@ -38,13 +38,20 @@ public struct Diagnostics: Sendable {
         } catch { span.finish(error: error); throw error }
     }
 
-    public func measure<T: Sendable>(_ operation: DiagnosticOperation, origin: DiagnosticOrigin = .background,
+    public func measure<T: Sendable>(_ operation: DiagnosticOperation, origin: DiagnosticOrigin = DiagnosticOrigin.current ?? .background,
                                     metrics: DiagnosticMetrics = .init(), _ body: @Sendable () async throws -> T) async rethrows -> T {
+        try await measure(operation, origin: origin, metrics: metrics, outcome: { _ in .success }, body)
+    }
+
+    /// 正常返回也可能是不同业务终态（timeout、noChange、unconfirmed…）；由 `outcome` 从返回值推导，抛错仍按错误分类。
+    public func measure<T: Sendable>(_ operation: DiagnosticOperation, origin: DiagnosticOrigin = DiagnosticOrigin.current ?? .background,
+                                    metrics: DiagnosticMetrics = .init(), outcome: @Sendable (T) -> DiagnosticOutcome,
+                                    _ body: @Sendable () async throws -> T) async rethrows -> T {
         guard isEnabled() else { return try await body() }
         let span = begin(operation, origin: origin, metrics: metrics)
         do {
             let value = try await TraceContext.$current.withValue(span.context, operation: { try await body() })
-            span.finish()
+            span.finish(outcome(value))
             return value
         } catch { span.finish(error: error); throw error }
     }

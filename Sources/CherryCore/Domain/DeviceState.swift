@@ -228,16 +228,11 @@ public struct KeyEvent: Equatable, Sendable {
     public let isDown: Bool
     /// Nanoseconds, monotonic.
     public let timestamp: UInt64
-    /// 与注入 Diagnostics.now 同源，只在内存传递；不会编码按键内容。
-    public let diagnosticTimestampNs: UInt64?
-    public let diagnosticContext: TraceContext?
 
-    public init(usage: HIDUsage, isDown: Bool, timestamp: UInt64, diagnosticTimestampNs: UInt64? = nil, diagnosticContext: TraceContext? = nil) {
+    public init(usage: HIDUsage, isDown: Bool, timestamp: UInt64) {
         self.usage = usage
         self.isDown = isDown
         self.timestamp = timestamp
-        self.diagnosticTimestampNs = diagnosticTimestampNs
-        self.diagnosticContext = diagnosticContext
     }
 }
 

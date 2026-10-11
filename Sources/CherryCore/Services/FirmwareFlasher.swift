@@ -84,12 +84,7 @@ public struct FirmwareFlasher: Sendable {
         }
 
         await reportProgress(.verifying, progress: progress)
-        let resultSpan = diagnostics.begin(.otaResult)
-        do {
-            let result = try await readResult()
-            resultSpan.finish(DiagnosticOutcome(result))
-            return result
-        } catch { resultSpan.finish(error: error); throw error }
+        return try await diagnostics.measure(.otaResult, outcome: DiagnosticOutcome.init) { try await readResult() }
     }
 
     private func readResult() async throws -> FlashOutcome {
@@ -113,22 +108,13 @@ public struct FirmwareFlasher: Sendable {
     }
 
     public func flash(_ image: UpdaterImage, progress: @Sendable (FlashProgress) async -> Void) async throws -> FlashOutcome {
-        let span = diagnostics.begin(.otaTransfer, metrics: .init(bytes: UInt64(image.firmware.count)))
-        do {
-            let result = try await TraceContext.$current.withValue(span.context) { try await flashImpl(image, progress: progress) }
-            span.finish(DiagnosticOutcome(result))
-            return result
-        } catch { span.finish(error: error); throw error }
+        try await diagnostics.measure(.otaTransfer, metrics: .init(bytes: UInt64(image.firmware.count)), outcome: DiagnosticOutcome.init) {
+            try await flashImpl(image, progress: progress)
+        }
     }
 
     private func nextAck(timeout: Duration) async throws -> [UInt8]? {
-        guard diagnostics.isEnabled() else { return try await nextAckImpl(timeout: timeout) }
-        let span = diagnostics.begin(.otaACK)
-        do {
-            let result = try await nextAckImpl(timeout: timeout)
-            span.finish(result == nil ? .timeout : .success)
-            return result
-        } catch { span.finish(error: error); throw error }
+        try await diagnostics.measure(.otaACK, outcome: { $0 == nil ? .timeout : .success }) { try await nextAckImpl(timeout: timeout) }
     }
 
     private func reportProgress(_ value: FlashProgress, progress: @Sendable (FlashProgress) async -> Void) async {

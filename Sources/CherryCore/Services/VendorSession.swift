@@ -1,5 +1,16 @@
 import Foundation
 
+/// Result of a read-modify-write: `written == false` means the target bytes already matched and nothing was sent.
+public struct ProfileUpdate: Equatable, Sendable {
+    public let config: ProfileConfig
+    public let written: Bool
+
+    public init(config: ProfileConfig, written: Bool) {
+        self.config = config
+        self.written = written
+    }
+}
+
 /// Client of the private configuration channel, over any `HIDReportChannel`.
 public struct VendorSession: Sendable {
     public let channel: any HIDReportChannel
@@ -118,17 +129,15 @@ public struct VendorSession: Sendable {
     }
 
     /// Read-modify-write of profile `n`: only the bytes of the patched fields are sent, then the block is read back.
-    public func update(profile n: Int, with patch: ProfilePatch) async throws -> ProfileConfig {
+    public func update(profile n: Int, with patch: ProfilePatch) async throws -> ProfileUpdate {
         let current = try await profile(n)
         let target = current.applying(patch)
-        guard let range = current.changedRange(to: target) else {
-            diagnostics.emit(.configurationWrite, outcome: .noChange)
-            return current
-        }
+        guard let range = current.changedRange(to: target) else { return ProfileUpdate(config: current, written: false) }
         try await transaction {
             try await write(Array(target[range]), at: n * ProfileConfig.blockSize + range.lowerBound)
         }
-        return try await diagnostics.measure(.configurationReadBack) { try await profile(n) }
+        let readBack = try await diagnostics.measure(.configurationReadBack) { try await profile(n) }
+        return ProfileUpdate(config: readBack, written: true)
     }
 
     // MARK: Exchange

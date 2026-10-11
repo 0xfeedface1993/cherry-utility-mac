@@ -31,7 +31,8 @@ public protocol ReportChannelProvider: Sendable {
 
 public protocol KeyEventSource: Sendable {
     /// Key down/up events of `keyboard`'s keyboard + consumer collections; finishes on disconnect.
-    func keyEvents(keyboard: KeyboardID) -> AsyncThrowingStream<KeyEvent, any Error>
+    /// The stamp marks when the adapter received the report, for end-to-end latency only.
+    func keyEvents(keyboard: KeyboardID) -> AsyncThrowingStream<Traced<KeyEvent>, any Error>
 }
 
 public protocol InputMonitoringPort: Sendable {

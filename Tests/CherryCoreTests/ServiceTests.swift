@@ -125,13 +125,15 @@ final class ProgressLog: Sendable {
 struct FirmwareFlasherTests {
     let fast = FirmwareFlasher.Timeouts(reply: .milliseconds(200), start: .milliseconds(200), ack: .milliseconds(200), result: .milliseconds(300))
 
-    @Test func flashesAndDeviceReassemblesIdenticalImage() async throws {
+    @Test(arguments: Observation.allCases)
+    func flashesAndDeviceReassemblesIdenticalImage(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let image = try TestFirmware.updaterImage(size: 5000)
         let device = SimulatedOTADevice()
         let channel = SimulatedChannel(inputReportIDs: [5], respond: device.respond)
         let log = ProgressLog()
 
-        let outcome = try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast).flash(image) { log.append($0) }
+        let outcome = try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast, diagnostics: recorder.port).flash(image) { log.append($0) }
 
         #expect(outcome == .confirmed)
         let reassembled = device.memory.withLock { Array($0.image[0..<image.firmware.count]) }
@@ -141,6 +143,12 @@ struct FirmwareFlasherTests {
         #expect(events.last == .verifying)
         let percents = events.compactMap { if case .transferred(_, _, let p) = $0 { p } else { nil } }
         #expect(percents == percents.sorted() && percents.last == 100 && Set(percents).count == percents.count)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            // 开始 ACK + 除结束命令外每个数据报文的 ACK + 结束结果，各占一个 span。
+            #expect(recorder.finished(.otaACK).count == channel.sentCount)
+            #expect(recorder.finished(.otaResult).map(\.outcome) == [.success])
+        }
     }
 
     @Test func readsFirmwareStatus() async throws {
@@ -164,12 +172,18 @@ struct FirmwareFlasherTests {
         }
     }
 
-    @Test func treatsDisconnectAfterTransferAsReboot() async throws {
+    @Test(arguments: Observation.allCases)
+    func treatsDisconnectAfterTransferAsReboot(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let image = try TestFirmware.updaterImage(size: 640)
         let device = SimulatedOTADevice(disconnectAfterEnd: true)
         let channel = SimulatedChannel(inputReportIDs: [5], respond: device.respond)
-        let outcome = try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast).flash(image) { _ in }
+        let outcome = try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast, diagnostics: recorder.port).flash(image) { _ in }
         #expect(outcome == .deviceRebooted)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.otaTransfer).map(\.outcome) == [.deviceRebooted])
+        }
     }
 
     @Test func timesOutWhenDeviceIgnoresStart() async throws {
@@ -193,17 +207,23 @@ struct FirmwareFlasherTests {
         #expect(outcome == .confirmed)
     }
 
-    @Test func cancellationStopsTheTransfer() async throws {
+    @Test(arguments: Observation.allCases)
+    func cancellationStopsTheTransfer(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let image = try TestFirmware.updaterImage(size: 50_000)
         let device = SimulatedOTADevice()
         let channel = SimulatedChannel(inputReportIDs: [5], respond: device.respond)
         let task = Task {
-            try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast).flash(image) { progress in
+            try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast, diagnostics: recorder.port).flash(image) { progress in
                 if case .transferred(_, _, let p) = progress, p >= 10 { withUnsafeCurrentTask { $0?.cancel() } }
             }
         }
         await #expect(throws: CancellationError.self) { try await task.value }
         #expect(channel.sentCount < 1000)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.otaTransfer).map(\.outcome) == [.cancelled])
+        }
     }
 }
 

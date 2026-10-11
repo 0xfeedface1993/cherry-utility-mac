@@ -136,7 +136,7 @@ public struct ConfigurationFeature: Sendable {
                 let revision = state.configurationRevision
                 state.loadGeneration &+= 1
                 let generation = state.loadGeneration
-                return .run { send in
+                return .run(origin: .configuration) { send in
                     let result = await Result { try await client.configuration(keyboard) }
                     guard !Task.isCancelled else { return }
                     await send(.configurationLoaded(result, revision: revision, generation: generation))
@@ -206,7 +206,7 @@ public struct ConfigurationFeature: Sendable {
                 guard state.isConnected, !state.isBusy, n != state.activeProfile else { return .none }
                 state.activatingProfile = n
                 let keyboard = state.keyboard
-                return .run { send in
+                return .run(origin: .configuration) { send in
                     await send(.activationFinished(Result { try await client.activateProfile(n, keyboard) }))
                 }
                 .cancellable(id: CancelID.activate)
@@ -233,7 +233,7 @@ public struct ConfigurationFeature: Sendable {
                 guard state.isConnected, let profile = state.selectedProfile,
                       let patch = state.editor?.beginSave() else { return .none }
                 let keyboard = state.keyboard
-                return .run { send in
+                return .run(origin: .configuration) { send in
                     await send(.saveFinished(Result { try await client.updateProfile(profile, keyboard, patch) }))
                 }
                 .cancellable(id: CancelID.save)
@@ -268,7 +268,7 @@ public struct ConfigurationFeature: Sendable {
                 guard let settings = state.editor?.draft else { return .none }
                 let name = state.presetName
                 let keyboard = state.keyboard
-                return .run { send in
+                return .run(origin: .configuration) { send in
                     await send(.presetSaved(Result { try await presetClient.save(name, settings, keyboard) }))
                 }
 
@@ -303,7 +303,7 @@ public struct ConfigurationFeature: Sendable {
                 return .none
 
             case .alert(.presented(.confirmDelete(let id))):
-                return .run { send in
+                return .run(origin: .configuration) { send in
                     await send(.presetDeleted(Result { try await presetClient.delete(id); return id }))
                 }
 
@@ -328,7 +328,7 @@ public struct ConfigurationFeature: Sendable {
                 return .none
 
             case .importFileSelected(.success(let url)):
-                return .run { send in
+                return .run(origin: .configuration) { send in
                     await send(.presetImported(Result { try await presetClient.importFile(url) }))
                 }
 
@@ -366,7 +366,7 @@ public struct ConfigurationFeature: Sendable {
 
     private func loadPresets(_ state: inout State) -> Effect<Action> {
         state.presets = .loading
-        return .run { send in
+        return .run(origin: .configuration) { send in
             await send(.presetsLoaded(Result { try await presetClient.presets() }))
         }
         .cancellable(id: CancelID.presets, cancelInFlight: true)

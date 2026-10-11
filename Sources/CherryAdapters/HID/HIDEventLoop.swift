@@ -45,12 +45,16 @@ public final class HIDEventLoop: Sendable {
     /// Enqueues `block` on the HID thread (FIFO).
     func execute(_ block: @escaping @Sendable () -> Void) {
         let scheduled = diagnostics.begin(.hidSchedule)
+        // HID 线程没有调用方的 task-local；trace 与 origin 一并带过去。
         let context = TraceContext.current
+        let origin = DiagnosticOrigin.current
         let diagnostics = self.diagnostics
         let wrapped: @Sendable () -> Void = {
             scheduled.finish()
-            TraceContext.$current.withValue(context) {
-                diagnostics.measure(.hidExecution) { block() }
+            DiagnosticOrigin.$current.withValue(origin) {
+                TraceContext.$current.withValue(context) {
+                    diagnostics.measure(.hidExecution) { block() }
+                }
             }
         }
         trampoline.perform(#selector(Trampoline.run(_:)), on: thread.value, with: BlockBox(wrapped), waitUntilDone: false)

@@ -13,7 +13,6 @@ public final class DiagnosticsRuntime: Sendable {
         self.journal = journal
         logger = OSLogDiagnostics(mode: mode, journal: journal)
         exporter = DiagnosticExporter(journal: journal, directory: directory.appendingPathComponent("Exports", isDirectory: true), environment: environment)
-        port.emit(.launch, origin: .app, metrics: .init(statusCode: environment.simulated ? 1 : 0))
     }
 
     public var status: DiagnosticStatus {

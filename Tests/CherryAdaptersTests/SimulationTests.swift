@@ -98,6 +98,22 @@ struct SimulationTests {
         await channel.close()
     }
 
+    @Test func keyCaptureSessionStaysOutsideTheEvent() async throws {
+        let events = Mutex<[DiagnosticEvent]>([])
+        let hub = SimulatedKeyboardHub(diagnostics: .recording { event in events.withLock { $0.append(event) } })
+        var stream = hub.keyEvents(keyboard: SimulatedKeyboardHub.keyboardID).makeAsyncIterator()
+        hub.inject(.keyboard(0x04), isDown: true, timestamp: 7)
+        let traced = try #require(try await stream.next())
+        #expect(traced.value == KeyEvent(usage: .keyboard(0x04), isDown: true, timestamp: 7))
+        let capture = try #require(events.withLock { $0.first { $0.operation == .keyCapture && $0.phase == .began } })
+        #expect(traced.stamp?.context == capture.context)
+        hub.unplug()
+        await #expect(throws: CherryError.disconnected) { try await stream.next() }
+        let recorded = events.withLock { $0 }
+        #expect(recorded.filter { $0.operation == .keyCapture && $0.phase == .finished }.map(\.outcome) == [.disconnected])
+        #expect(recorded.filter { $0.operation == .keyStream }.map(\.context) == [capture.context])
+    }
+
     @Test func hotPlugEndsChannelsAndEventStreamsAndNotifiesSubscribers() async throws {
         let hub = SimulatedKeyboardHub()
         var updates = hub.keyboardUpdates().makeAsyncIterator()
@@ -106,7 +122,7 @@ struct SimulationTests {
         let channel = try await hub.openChannel(keyboard: SimulatedKeyboardHub.keyboardID, usagePage: 0xFF1C, reportID: 4)
         var events = hub.keyEvents(keyboard: SimulatedKeyboardHub.keyboardID).makeAsyncIterator()
         hub.inject(.keyboard(0x04), isDown: true, timestamp: 7)
-        #expect(try await events.next() == KeyEvent(usage: .keyboard(0x04), isDown: true, timestamp: 7))
+        #expect(try await events.next()?.value == KeyEvent(usage: .keyboard(0x04), isDown: true, timestamp: 7))
 
         hub.unplug()
         #expect(await updates.next() == [])

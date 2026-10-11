@@ -56,6 +56,12 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
         var ota = OTAState()
     }
 
+    /// 与 IOKit 适配器相同：每个订阅一个采集会话。
+    struct KeySubscriber {
+        let continuation: AsyncThrowingStream<Traced<KeyEvent>, any Error>.Continuation
+        let observation: KeyCaptureDiagnostics
+    }
+
     struct OTAState {
         var started = false
         var image: [UInt8] = []
@@ -66,7 +72,7 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     private struct State {
         var device: Device
         var listSubscribers: [UUID: AsyncStream<[KeyboardSummary]>.Continuation] = [:]
-        var keySubscribers: [UUID: AsyncThrowingStream<KeyEvent, any Error>.Continuation] = [:]
+        var keySubscribers: [UUID: KeySubscriber] = [:]
         var channels: [UUID: SimulatedReportChannel] = [:]
         /// Supervised reboot after an OTA; replaced or cancelled, never orphaned.
         var reboot: Task<Void, Never>?
@@ -116,7 +122,7 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     // MARK: Test controls
 
     public func unplug() {
-        let (lists, keys, channels) = state.withLock { s -> ([AsyncStream<[KeyboardSummary]>.Continuation], [AsyncThrowingStream<KeyEvent, any Error>.Continuation], [SimulatedReportChannel]) in
+        let (lists, keys, channels) = state.withLock { s -> ([AsyncStream<[KeyboardSummary]>.Continuation], [KeySubscriber], [SimulatedReportChannel]) in
             s.device.attached = false
             s.device.ota = OTAState()
             let keys = Array(s.keySubscribers.values)
@@ -126,7 +132,10 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
             return (Array(s.listSubscribers.values), keys, channels)
         }
         for channel in channels { channel.deviceRemoved() }
-        for key in keys { key.finish(throwing: CherryError.disconnected) }
+        for key in keys {
+            key.observation.finish(.disconnected)
+            key.continuation.finish(throwing: CherryError.disconnected)
+        }
         for list in lists { list.yield([]) }
     }
 
@@ -142,12 +151,9 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     /// Delivers a key press/release as if the keyboard had sent it.
     public func inject(_ usage: HIDUsage, isDown: Bool, timestamp: UInt64 = DispatchTime.now().uptimeNanoseconds) {
         let keys = state.withLock { Array($0.keySubscribers.values) }
-        let stamp = diagnostics.isEnabled() ? diagnostics.now() : nil
+        let event = KeyEvent(usage: usage, isDown: isDown, timestamp: timestamp)
         for key in keys {
-            let result = key.yield(KeyEvent(usage: usage, isDown: isDown, timestamp: timestamp, diagnosticTimestampNs: stamp))
-            let dropped: UInt64
-            if case .dropped = result { dropped = 1 } else { dropped = 0 }
-            diagnostics.emit(.keyStream, origin: .keytest, metrics: .init(count: 1, dropped: dropped))
+            key.observation.yielded(key.continuation.yield(Traced(event, stamp: key.observation.stamp())))
         }
     }
 
@@ -232,16 +238,23 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
 
     // MARK: KeyEventSource
 
-    public func keyEvents(keyboard: KeyboardID) -> AsyncThrowingStream<KeyEvent, any Error> {
-        let (stream, continuation) = AsyncThrowingStream.makeStream(of: KeyEvent.self, bufferingPolicy: .bufferingNewest(512))
+    public func keyEvents(keyboard: KeyboardID) -> AsyncThrowingStream<Traced<KeyEvent>, any Error> {
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: Traced<KeyEvent>.self, bufferingPolicy: .bufferingNewest(512))
         let id = UUID()
+        let observation = KeyCaptureDiagnostics(diagnostics)
         let attached = state.withLock { s -> Bool in
             guard s.device.attached else { return false }
-            s.keySubscribers[id] = continuation
+            s.keySubscribers[id] = KeySubscriber(continuation: continuation, observation: observation)
             return true
         }
-        if !attached { continuation.finish(throwing: CherryError.deviceNotFound(keyboard)) }
+        if !attached {
+            let error = CherryError.deviceNotFound(keyboard)
+            observation.finish(error: error)
+            continuation.finish(throwing: error)
+        }
         continuation.onTermination = { [weak self] _ in
+            // 已因拔出结束的会话不会重复记录：span 只结束一次。
+            observation.finish(.stopped)
             self?.state.withLock { _ = $0.keySubscribers.removeValue(forKey: id) }
         }
         return stream

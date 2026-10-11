@@ -124,7 +124,7 @@ public struct MenuBarFeature: Sendable {
             case .panelAppeared:
                 return .merge(
                     .send(.refresh),
-                    .run { send in await send(.presetsLoaded(Result { try await presetClient.presets() })) }
+                    .run(origin: .menuBar) { send in await send(.presetsLoaded(Result { try await presetClient.presets() })) }
                 )
 
             case .keyboardsUpdated(let list):
@@ -158,8 +158,8 @@ public struct MenuBarFeature: Sendable {
                     state.snapshot = .loading
                 }
                 let revision = state.snapshotRevision
-                return .run { send in
-                    let result = await Result { try await diagnostics.measure(.refresh, origin: .menuBar) {
+                return .run(origin: .menuBar) { send in
+                    let result = await Result { try await diagnostics.measure(.refresh) {
                         try await keyboardClient.vendorSnapshot(keyboard)
                     } }
                     guard !Task.isCancelled else { return }
@@ -333,11 +333,11 @@ public struct MenuBarFeature: Sendable {
     private func execute(_ request: PendingWrite) -> Effect<Action> {
         switch request {
         case .patch(let keyboard, let n, let patch):
-            return .run { send in
+            return .run(origin: .menuBar) { send in
                 await send(.writeFinished(keyboard.id, Result { try await configurationClient.updateProfile(n, keyboard, patch) }))
             }
         case .activate(let keyboard, let n):
-            return .run { send in
+            return .run(origin: .menuBar) { send in
                 await send(.activationFinished(keyboard.id, Result { try await configurationClient.activateProfile(n, keyboard) }))
             }
         }

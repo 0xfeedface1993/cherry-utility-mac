@@ -89,7 +89,7 @@ public struct KeyTestFeature: Sendable {
                 return status == .granted ? .send(.startCapture) : .none
 
             case .requestAccessTapped:
-                return .run { send in await send(.accessResponse(await client.requestAccess())) }
+                return .run(origin: .keytest) { send in await send(.accessResponse(await client.requestAccess())) }
 
             case .accessResponse:
                 return .send(.accessChecked(client.accessStatus()))
@@ -103,16 +103,18 @@ public struct KeyTestFeature: Sendable {
                 state.captureError = nil
                 let id = state.keyboard.id
                 return .merge(
-                    .run { send in
+                    .run(origin: .keytest) { send in
                         let diagnostics = diagnostics
-                        for try await event in client.keyEvents(id) {
+                        for try await traced in client.keyEvents(id) {
                             try Task.checkCancellation()
-                            if let stamp = event.diagnosticTimestampNs {
-                                let now = diagnostics.now()
-                                diagnostics.emit(.keyDispatch, context: event.diagnosticContext, origin: .keytest,
-                                                 metrics: .init(durationNs: now >= stamp ? now - stamp : 0))
+                            if let stamp = traced.stamp {
+                                diagnostics.emit(.keyDispatch, context: stamp.context, metrics: .init(durationNs: diagnostics.elapsed(since: stamp)))
                             }
-                            await send(.keyEvent(event))
+                            // send 在主线程同步跑完 reducer 才返回，因此这里量到的是"适配器收到 → 状态已更新"。
+                            await send(.keyEvent(traced.value))
+                            if let stamp = traced.stamp {
+                                diagnostics.emit(.keyPipeline, context: stamp.context, metrics: .init(durationNs: diagnostics.elapsed(since: stamp)))
+                            }
                         }
                         await send(.captureEnded(nil))
                     } catch: { error, send in
@@ -139,12 +141,6 @@ public struct KeyTestFeature: Sendable {
                     at: 0
                 )
                 if state.log.count > State.logLimit { state.log.removeLast(state.log.count - State.logLimit) }
-                if let stamp = event.diagnosticTimestampNs {
-                    let diagnostics = diagnostics
-                    let now = diagnostics.now()
-                    diagnostics.emit(.keyPipeline, context: event.diagnosticContext, origin: .keytest,
-                                     metrics: .init(durationNs: now >= stamp ? now - stamp : 0))
-                }
                 return .none
 
             case .captureEnded(let message):

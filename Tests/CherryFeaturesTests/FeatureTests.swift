@@ -1,6 +1,7 @@
 import CherryCore
 import ComposableArchitecture
 import Foundation
+import Synchronization
 import Testing
 @testable import CherryFeatures
 
@@ -38,8 +39,34 @@ struct KeyTestFeatureTests {
         }
     }
 
+    @Test func latencyIsMeasuredInTheEffectFromTheAdapterStamp() async throws {
+        let events = Mutex<[DiagnosticEvent]>([])
+        let port = Diagnostics.recording { event in events.withLock { $0.append(event) } }
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: Traced<KeyEvent>.self)
+        var state = KeyTestFeature.State(keyboard: .preview)
+        state.access = .granted
+        state.suppressAppShortcuts = false
+        let store = TestStore(initialState: state) { KeyTestFeature() } withDependencies: {
+            $0.diagnostics = port
+            $0.keyTestClient.keyEvents = { _ in stream }
+        }
+        store.exhaustivity = .off
+        await store.send(.startCapture)
+        let session = TraceContext(origin: .keytest)
+        continuation.yield(Traced(KeyEvent(usage: .keyboard(4), isDown: true, timestamp: 1), stamp: port.stamp(context: session)))
+        await store.receive(\.keyEvent)
+        continuation.finish()
+        await store.receive(\.captureEnded)
+        let recorded = events.withLock { $0 }
+        #expect(recorded.map(\.operation) == [.keyDispatch, .keyPipeline])
+        #expect(recorded.allSatisfy { $0.context == session && $0.phase == .summary })
+        // reducer 不读时钟、不写观测：直接发送按键只改状态。
+        await store.send(.keyEvent(KeyEvent(usage: .keyboard(5), isDown: true, timestamp: 2)))
+        #expect(events.withLock { $0.count } == 2)
+    }
+
     @Test func startsCaptureWhenAccessGrantedAndStopsOnDisappear() async {
-        let (events, continuation) = AsyncThrowingStream.makeStream(of: KeyEvent.self)
+        let (events, continuation) = AsyncThrowingStream.makeStream(of: Traced<KeyEvent>.self)
         let store = TestStore(initialState: KeyTestFeature.State(keyboard: .preview)) {
             KeyTestFeature()
         } withDependencies: {
@@ -52,7 +79,7 @@ struct KeyTestFeatureTests {
         await store.receive(\.accessChecked) { $0.access = .granted }
         await store.receive(\.startCapture) { $0.isCapturing = true }
 
-        continuation.yield(KeyEvent(usage: .consumer(0xE9), isDown: true, timestamp: 1))
+        continuation.yield(Traced(KeyEvent(usage: .consumer(0xE9), isDown: true, timestamp: 1)))
         await store.receive(\.keyEvent) {
             $0.pressed = [.consumer(0xE9)]
             $0.tested = [.consumer(0xE9)]

@@ -13,7 +13,7 @@ public struct FileProfilePresetStore: ProfilePresetStore {
     }
 
     public func presets() async throws -> [ProfilePreset] {
-        try diagnostics.measure(.presetIO, origin: .configuration) { try readPresets() }
+        try diagnostics.measure(.presetIO) { try readPresets() }
     }
 
     private func readPresets() throws -> [ProfilePreset] {
@@ -32,7 +32,7 @@ public struct FileProfilePresetStore: ProfilePresetStore {
     }
 
     public func save(_ preset: ProfilePreset) async throws {
-        try diagnostics.measure(.presetIO, origin: .configuration) { try savePreset(preset) }
+        try diagnostics.measure(.presetIO) { try savePreset(preset) }
     }
 
     private func savePreset(_ preset: ProfilePreset) throws {
@@ -47,7 +47,7 @@ public struct FileProfilePresetStore: ProfilePresetStore {
     }
 
     public func delete(id: UUID) async throws {
-        try diagnostics.measure(.presetIO, origin: .configuration) { try deletePreset(id: id) }
+        try diagnostics.measure(.presetIO) { try deletePreset(id: id) }
     }
 
     private func deletePreset(id: UUID) throws {

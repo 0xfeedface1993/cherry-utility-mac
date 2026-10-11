@@ -83,22 +83,18 @@ public struct ExclusiveChannelProvider: ReportChannelProvider {
         self.diagnostics = diagnostics
     }
 
+    /// 只有一条排队路径：观测关闭时 span 为空操作，不改变获取、交接和释放的顺序。
     public func openChannel(keyboard: KeyboardID, usagePage: UInt16, reportID: UInt8) async throws -> any HIDReportChannel {
         let key = Key(keyboard: keyboard, usagePage: usagePage)
-        if !diagnostics.isEnabled() {
-            try await gate.acquire(key)
-            do {
-                let channel = try await base.openChannel(keyboard: keyboard, usagePage: usagePage, reportID: reportID)
-                return GatedChannel(base: channel) { [gate] in gate.release(key) }
-            } catch { gate.release(key); throw error }
-        }
         let queue = diagnostics.begin(.channelQueue, metrics: .init(usagePage: usagePage, reportID: reportID))
-        let parent = queue.context
-        let ownership = Mutex<(span: DiagnosticSpan?, granted: UInt64)>((nil, 0))
+        // 交接回调运行在释放方的任务上，因此显式带上本次调用的 trace 与 origin，不读取释放方的 task-local。
+        let parent = queue.context ?? TraceContext.current
+        let origin = DiagnosticOrigin.current ?? .background
+        let ownership = Mutex<(span: DiagnosticSpan, granted: UInt64)>((.disabled, 0))
         let resolution: @Sendable (Result<Void, any Error>) -> Void = { [diagnostics] result in
             switch result {
             case .success:
-                let held = diagnostics.begin(.channelHeld, context: parent)
+                let held = diagnostics.begin(.channelHeld, context: parent, origin: origin)
                 let now = diagnostics.now()
                 ownership.withLock { $0 = (held, now) }
                 queue.finish()
@@ -108,10 +104,9 @@ public struct ExclusiveChannelProvider: ReportChannelProvider {
         do { try await gate.acquire(key, resolved: resolution) }
         catch { queue.finish(error: error); throw error }
         let acquired = ownership.withLock { $0 }
-        if diagnostics.isEnabled() {
-            let now = diagnostics.now()
-            diagnostics.emit(.channelResume, context: parent, metrics: .init(durationNs: now >= acquired.granted ? now - acquired.granted : 0))
-        }
+        let resumed = diagnostics.now()
+        diagnostics.emit(.channelResume, context: parent, origin: origin,
+                         metrics: .init(durationNs: resumed >= acquired.granted ? resumed - acquired.granted : 0))
         do {
             let channel = try await TraceContext.$current.withValue(parent) {
                 try await diagnostics.measure(.channelOpen) {
@@ -119,11 +114,11 @@ public struct ExclusiveChannelProvider: ReportChannelProvider {
                 }
             }
             return GatedChannel(base: channel) { [gate] in
-                acquired.span?.finish()
+                acquired.span.finish()
                 gate.release(key)
             }
         } catch {
-            acquired.span?.finish(error: error)
+            acquired.span.finish(error: error)
             gate.release(key)
             throw error
         }

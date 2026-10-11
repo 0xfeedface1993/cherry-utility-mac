@@ -20,7 +20,7 @@ public struct KeyTestClient: Sendable {
     public var accessStatus: @Sendable () -> InputMonitoringStatus = { .undetermined }
     public var requestAccess: @Sendable () async -> Bool = { false }
     public var openAccessSettings: @Sendable () async -> Void
-    public var keyEvents: @Sendable (_ keyboard: KeyboardID) -> AsyncThrowingStream<KeyEvent, any Error> = { _ in .finished() }
+    public var keyEvents: @Sendable (_ keyboard: KeyboardID) -> AsyncThrowingStream<Traced<KeyEvent>, any Error> = { _ in .finished() }
     /// Swallows key events inside the app (so Cmd-Q etc. don't fire while testing) until cancelled.
     public var suppressAppKeyEvents: @Sendable () async -> Void
 }

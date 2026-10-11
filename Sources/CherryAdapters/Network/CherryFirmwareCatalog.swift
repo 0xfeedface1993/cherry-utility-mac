@@ -33,10 +33,10 @@ public struct CherryFirmwareCatalog: FirmwareCatalogPort, FirmwareDownloadPort {
     }
 
     public func releases() async throws -> [FirmwareRelease] {
-        let data = try await diagnostics.measure(.catalogFetch, origin: .firmware) { try await get(Self.listURL) }
+        let data = try await diagnostics.measure(.catalogFetch) { try await get(Self.listURL) }
         let response: Response
         do {
-            response = try diagnostics.measure(.catalogDecode, origin: .firmware, metrics: .init(bytes: UInt64(data.count))) {
+            response = try diagnostics.measure(.catalogDecode, metrics: .init(bytes: UInt64(data.count))) {
                 try JSONDecoder().decode(Response.self, from: data)
             }
         } catch {
@@ -55,15 +55,15 @@ public struct CherryFirmwareCatalog: FirmwareCatalogPort, FirmwareDownloadPort {
 
     public func download(_ release: FirmwareRelease) async throws -> Data {
         let file = cacheDirectory.appendingPathComponent(release.downloadURL.lastPathComponent)
-        if let cached = try? diagnostics.measure(.cacheRead, origin: .firmware, { try Data(contentsOf: file) }), Self.md5(cached) == release.md5 {
+        if let cached = try? diagnostics.measure(.cacheRead, { try Data(contentsOf: file) }), Self.md5(cached) == release.md5 {
             return cached
         }
-        let data = try await diagnostics.measure(.firmwareDownload, origin: .firmware) { try await get(release.downloadURL) }
+        let data = try await diagnostics.measure(.firmwareDownload) { try await get(release.downloadURL) }
         guard Self.md5(data) == release.md5 else {
             throw CherryError.checksumMismatch("下载文件 MD5 与目录不一致")
         }
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-        try? diagnostics.measure(.cacheWrite, origin: .firmware, metrics: .init(bytes: UInt64(data.count))) { try data.write(to: file, options: .atomic) }
+        try? diagnostics.measure(.cacheWrite, metrics: .init(bytes: UInt64(data.count))) { try data.write(to: file, options: .atomic) }
         return data
     }
 

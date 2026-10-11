@@ -94,7 +94,7 @@ public final class OSLogDiagnostics: Sendable {
 
     public func setMode(_ mode: DiagnosticMode) {
         policy.set(mode)
-        publish(.init(operation: .modeChange, phase: .changed, context: TraceContext(origin: .app),
+        publish(.init(operation: .modeChange, phase: .changed, context: TraceContext(),
                       metrics: .init(statusCode: DiagnosticMode.allCases.firstIndex(of: mode)), elapsedNs: clock.now()))
     }
     public var modeStatus: (DiagnosticMode, Date?) { policy.status }

@@ -11,13 +11,19 @@ public struct TraceContext: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey { case traceID = "traceId", spanID = "spanId", parentSpanID = "parentSpanId", deviceSessionID = "deviceSessionId", origin }
 
-    public init(parent: TraceContext? = nil, origin: DiagnosticOrigin = .background, deviceSessionID: UUID? = nil) {
+    public init(parent: TraceContext? = nil, origin: DiagnosticOrigin = DiagnosticOrigin.current ?? .background, deviceSessionID: UUID? = nil) {
         traceID = parent?.traceID ?? UUID()
         spanID = UUID()
         parentSpanID = parent?.spanID
         self.deviceSessionID = deviceSessionID ?? parent?.deviceSessionID
         self.origin = parent?.origin ?? origin
     }
+}
+
+extension DiagnosticOrigin {
+    /// 由驱动侧（Feature effect、组合根、Profile 工具）声明的调用来源。
+    /// Core 服务和被驱动适配器不指定 origin：有父 trace 时继承父 trace，否则读取这里，再否则为 `.background`。
+    @TaskLocal public static var current: DiagnosticOrigin?
 }
 
 public struct DiagnosticClock: Sendable {

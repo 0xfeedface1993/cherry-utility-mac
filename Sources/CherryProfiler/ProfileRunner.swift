@@ -25,11 +25,14 @@ final class ProfileRunner {
 
     func run() async throws {
         try FileManager.default.createDirectory(at: options.output, withIntermediateDirectories: true)
-        if options.scenario == "trace" {
-            for _ in 0..<3 { try await reads(); try await firmware(); try await ota() }
-        } else {
-            try await startup(); try await reads(); try await writes()
-            try await input(); try await firmware(); try await ota(); try await idle()
+        // Profile 工具是驱动侧：直接调用的服务继承 profile 来源，KeyTest reducer 的 effect 仍声明自己的来源。
+        try await DiagnosticOrigin.$current.withValue(.profile) {
+            if options.scenario == "trace" {
+                for _ in 0..<3 { try await reads(); try await firmware(); try await ota() }
+            } else {
+                try await startup(); try await reads(); try await writes()
+                try await input(); try await firmware(); try await ota(); try await idle()
+            }
         }
         try await runtime.flush()
         let snapshot = try await runtime.journal.snapshot(range: .currentRun)

@@ -87,20 +87,22 @@ public struct KeyboardConfigurator: Sendable {
     }
 
     /// Changes only the patched fields of profile `n` and returns the block read back from the keyboard.
-    func updateImpl(profile n: Int, on keyboard: KeyboardSummary, patch: ProfilePatch) async throws -> ProfileConfig {
+    func updateImpl(profile n: Int, on keyboard: KeyboardSummary, patch: ProfilePatch) async throws -> ProfileUpdate {
         let model = try supportedModel(keyboard)
         try Self.validate(profile: n, model: model)
         if patch.fields.contains(.effect), let effect = patch.values?.effect, model.effect(effect) == nil {
             throw CherryError.unsupportedSetting(String(format: "%@ 不支持灯效值 0x%02X", model.name, effect))
         }
-        guard !patch.isEmpty else { return try await session(keyboard, model) { try await $0.profile(n) } }
+        guard !patch.isEmpty else {
+            return ProfileUpdate(config: try await session(keyboard, model) { try await $0.profile(n) }, written: false)
+        }
         return try await session(keyboard, model) { session in
-            let updated = try await session.update(profile: n, with: patch)
-            let expected = patch.applied(to: updated.settings)
-            guard ProfileField.differences(between: expected, and: updated.settings).isDisjoint(with: patch.fields) else {
+            let update = try await session.update(profile: n, with: patch)
+            let expected = patch.applied(to: update.config.settings)
+            guard ProfileField.differences(between: expected, and: update.config.settings).isDisjoint(with: patch.fields) else {
                 throw CherryError.writeNotApplied("读回的配置与写入不一致")
             }
-            return updated
+            return update
         }
     }
 

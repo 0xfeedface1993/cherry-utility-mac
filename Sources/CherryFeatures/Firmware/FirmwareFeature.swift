@@ -101,7 +101,7 @@ public struct FirmwareFeature: Sendable {
                     return .none
                 }
                 state.latest = .loading
-                return .run { send in
+                return .run(origin: .firmware) { send in
                     await send(.latestLoaded(Result { try await client.latestRelease(model) }))
                 }
                 .cancellable(id: CancelID.latest, cancelInFlight: true)
@@ -113,7 +113,7 @@ public struct FirmwareFeature: Sendable {
             case .downloadTapped:
                 guard let release = state.latest.value ?? nil, !state.isBusy else { return .none }
                 state.package = .loading
-                return .run { send in
+                return .run(origin: .firmware) { send in
                     await send(.packageLoaded(Result { try await client.download(release) }))
                 }
                 .cancellable(id: CancelID.package, cancelInFlight: true)
@@ -126,7 +126,7 @@ public struct FirmwareFeature: Sendable {
             case .localFileSelected(.success(let url)):
                 guard !state.isBusy else { return .none }
                 state.package = .loading
-                return .run { send in
+                return .run(origin: .firmware) { send in
                     await send(.packageLoaded(Result { try await client.loadLocal(url) }))
                 }
                 .cancellable(id: CancelID.package, cancelInFlight: true)
@@ -147,7 +147,7 @@ public struct FirmwareFeature: Sendable {
                       state.keyboard.hasInterface(usagePage: package.image.usagePage) else { return .none }
                 state.deviceFirmware = .loading
                 let id = state.keyboard.id
-                return .run { send in
+                return .run(origin: .firmware) { send in
                     await send(.deviceFirmwareLoaded(Result { try await client.deviceFirmware(id, package) }))
                 }
                 .cancellable(id: CancelID.device, cancelInFlight: true)
@@ -170,7 +170,7 @@ public struct FirmwareFeature: Sendable {
                 state.phase = .flashing(sent: 0, total: 0, percent: 0)
                 // Not tied to any view and never cancelled from the UI: aborting mid-transfer only wastes the
                 // attempt (the device keeps its old image), but there is no reason to offer it.
-                return .run { send in
+                return .run(origin: .firmware) { send in
                     let result = await Result {
                         try await client.flash(keyboard, package) { progress in await send(.flashProgress(progress)) }
                     }
@@ -193,7 +193,7 @@ public struct FirmwareFeature: Sendable {
                 guard let package = state.package.value else { return .none }
                 state.phase = .waitingForReboot(outcome)
                 let id = state.keyboard.id
-                return .run { send in
+                return .run(origin: .firmware) { send in
                     await send(.verifyFinished(outcome: outcome, Result { try await client.verifyAfterFlash(id, package) }))
                 }
                 .cancellable(id: CancelID.flash)

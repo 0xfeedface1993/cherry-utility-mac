@@ -57,8 +57,8 @@ public final class IOKitHIDService: KeyboardDiscoveryPort, ReportChannelProvider
 
     // MARK: KeyEventSource
 
-    public func keyEvents(keyboard: KeyboardID) -> AsyncThrowingStream<KeyEvent, any Error> {
-        let (stream, continuation) = AsyncThrowingStream.makeStream(of: KeyEvent.self, bufferingPolicy: .bufferingNewest(512))
+    public func keyEvents(keyboard: KeyboardID) -> AsyncThrowingStream<Traced<KeyEvent>, any Error> {
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: Traced<KeyEvent>.self, bufferingPolicy: .bufferingNewest(512))
         let state = self.state
         let subscription = KeyEventSubscription(continuation: continuation, diagnostics: loop.diagnostics)
         loop.execute { subscription.start(keyboard: keyboard, state: state) }

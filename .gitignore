@@ -12,6 +12,10 @@ DerivedData/
 *.profraw
 *.profdata
 
+# Python 字节码与缓存
+__pycache__/
+*.py[cod]
+
 # 本机签名配置与 Xcode 用户设置
 /Config/Local.xcconfig
 xcuserdata/

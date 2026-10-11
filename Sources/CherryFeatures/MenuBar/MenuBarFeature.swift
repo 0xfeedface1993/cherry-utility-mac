@@ -134,7 +134,9 @@ public struct MenuBarFeature: Sendable {
                 }.cancellable(id: CancelID.refresh, cancelInFlight: true)
             case .snapshotLoaded(let id, let result, let revision):
                 guard revision == nil || revision == state.snapshotRevision,
-                      id == state.keyboard?.id, state.keyboard?.canConfigure == true else { return .none }
+                      id == state.keyboard?.id, state.keyboard?.canConfigure == true else {
+                    return .record(.resultIgnored, origin: .menuBar, outcome: .ignored, with: diagnostics)
+                }
                 switch result {
                 case .success(var snapshot):
                     for change in state.pendingConfiguration { snapshot = snapshot.with(configuration: change.applied(to: snapshot.configuration)) }
@@ -143,13 +145,12 @@ public struct MenuBarFeature: Sendable {
                     state.snapshotID = id
                     state.errorMessage = nil
                     state.lastUpdated = now
-                    diagnostics.emit(.resultApplied, origin: .menuBar, outcome: .success)
+                    return .record(.resultApplied, origin: .menuBar, outcome: .success, with: diagnostics)
                 case .failure(let error):
                     state.errorMessage = error.userMessage
                     if state.snapshotID != id { state.snapshot = .failed(error.userMessage) }
-                    diagnostics.emit(.resultApplied, origin: .menuBar, outcome: .failed)
+                    return .record(.resultApplied, origin: .menuBar, outcome: .failed, with: diagnostics)
                 }
-                return .none
             case .presetsLoaded(.success(let presets)): state.presets = presets; return .none
             case .presetsLoaded(.failure): return .none
             case .activateProfile(let profile):

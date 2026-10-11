@@ -31,6 +31,9 @@ extension FirmwareUpdateService {
     public func download(_ release: FirmwareRelease) async throws -> FirmwarePackage {
         try await diagnostics.measure(.firmwareDownload) { try await downloadImpl(release) }
     }
+    public func loadLocal(_ data: Data, from url: URL) throws -> FirmwarePackage {
+        try diagnostics.measure(.firmwareParse, metrics: .init(bytes: UInt64(data.count))) { try loadLocalImpl(data, from: url) }
+    }
     public func deviceFirmware(keyboard: KeyboardID, package: FirmwarePackage) async throws -> DeviceFirmwareStatus {
         try await diagnostics.measure(.firmwareStatus) { try await deviceFirmwareImpl(keyboard: keyboard, package: package) }
     }

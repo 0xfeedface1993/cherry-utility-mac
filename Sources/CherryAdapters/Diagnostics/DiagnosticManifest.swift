@@ -25,10 +25,11 @@ struct DiagnosticManifest: Encodable {
     struct File: Codable { let name: String; let bytes: Int; let sha256: String }
     let schemaVersion = 1
     let policyVersion = 1
-    let retentionDays = 7
-    let journalLimitBytes = 32 * 1024 * 1024
-    let temporaryExportLimitBytes = 20 * 1024 * 1024
-    let detailSampleDivisor = 64
+    // 以下策略值由导出器从实际生效的 journal 限额与策略配置传入，不另写常量。
+    let retentionDays: Double
+    let journalLimitBytes: Int
+    let temporaryExportLimitBytes: Int
+    let detailSampleDivisor: UInt64
     let droppedCountScope = "current_run"
     let coveragePolicy = "best_effort_with_persisted_eviction_marker"
     let exportID: UUID

@@ -23,6 +23,44 @@ struct DiagnosticOriginFeatureTests {
         #expect(log.all == ["intent": .menuBar])
     }
 
+    @Test func menuBarRecordsWhetherSnapshotsWereApplied() async {
+        let events = Mutex<[DiagnosticEvent]>([])
+        let store = TestStore(initialState: MenuBarBranchTests.loadedState()) { MenuBarFeature() } withDependencies: {
+            $0.diagnostics = .recording { event in events.withLock { $0.append(event) } }
+            $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.uuid = .incrementing
+        }
+        store.exhaustivity = .off
+        let id = KeyboardSummary.preview.id
+        await store.send(.snapshotLoaded(id, .success(.preview)))
+        await store.send(.snapshotLoaded(id, .failure(CherryError.disconnected)))
+        await store.send(.snapshotLoaded(KeyboardID(vendorID: 1, productID: 1, locationID: 9), .success(.preview)))
+        await store.finish()
+        let recorded = events.withLock { $0.filter { [.resultApplied, .resultIgnored].contains($0.operation) } }
+        #expect(recorded.map(\.operation) == [.resultApplied, .resultApplied, .resultIgnored])
+        #expect(recorded.map(\.outcome) == [.success, .failed, .ignored])
+        #expect(recorded.allSatisfy { $0.context.origin == .menuBar })
+    }
+
+    /// reducer 决定结果采用与否，记录由 effect 执行（G2）。
+    @Test func deviceInfoRecordsWhetherResultsWereApplied() async {
+        let events = Mutex<[DiagnosticEvent]>([])
+        let store = TestStore(initialState: DeviceInfoFeature.State(keyboard: .preview)) { DeviceInfoFeature() } withDependencies: {
+            $0.diagnostics = .recording { event in events.withLock { $0.append(event) } }
+            $0.date.now = Date(timeIntervalSince1970: 0)
+        }
+        store.exhaustivity = .off
+        await store.send(.vendorLoaded(.success(.preview)))
+        await store.send(.vendorLoaded(.failure(CherryError.disconnected)))
+        await store.send(.keyboardUpdated(nil))
+        await store.send(.vendorLoaded(.success(.preview)))
+        await store.finish()
+        let recorded = events.withLock { $0.filter { [.resultApplied, .resultIgnored].contains($0.operation) } }
+        #expect(recorded.map(\.operation) == [.resultApplied, .resultApplied, .resultIgnored])
+        #expect(recorded.map(\.outcome) == [.success, .failed, .ignored])
+        #expect(recorded.allSatisfy { $0.context.origin == .deviceInfo })
+    }
+
     @Test func eachScreenAttributesItsOwnReads() async throws {
         let log = OriginLog()
         let record = log.record

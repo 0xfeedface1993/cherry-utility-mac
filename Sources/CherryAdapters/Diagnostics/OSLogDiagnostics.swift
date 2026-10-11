@@ -21,9 +21,9 @@ public final class OSLogDiagnostics: Sendable {
     }
 
     public init(mode: DiagnosticMode = .standard, clock: DiagnosticClock = .continuous(), journal: DiagnosticJournal? = nil,
-                sink: @escaping @Sendable (DiagnosticEvent) -> Void = { _ in }) {
+                configuration: DiagnosticPolicyConfiguration = .init(), sink: @escaping @Sendable (DiagnosticEvent) -> Void = { _ in }) {
         self.clock = clock; self.sink = sink; self.journal = journal
-        policy = DiagnosticPolicy(mode: mode, clock: clock)
+        policy = DiagnosticPolicy(mode: mode, clock: clock, configuration: configuration)
         outputs = Dictionary(uniqueKeysWithValues: Set(DiagnosticOperation.allCases.map(\.category)).map {
             let logger = Logger(subsystem: Self.subsystem, category: $0)
             // 通用 Points of Interest 模板可直接捕获；日志仍按业务 category 分组。
@@ -57,7 +57,7 @@ public final class OSLogDiagnostics: Sendable {
                 let now = clock.now()
                 var combined = final
                 combined.durationNs = now >= start ? now - start : 0
-                combined.sampleDivisor = operation.isDetail ? 64 : 1
+                combined.sampleDivisor = operation.isDetail ? max(1, policy.configuration.detailSampleDivisor) : 1
                 if operation.isDetail, let event = aggregates.add(operation, duration: combined.durationNs ?? 0, context: context,
                                                                    origin: origin, outcome: outcome, now: now) { publish(event) }
                 publish(.init(operation: operation, phase: .finished, context: context, outcome: outcome,

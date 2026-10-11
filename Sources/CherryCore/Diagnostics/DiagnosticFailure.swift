@@ -7,10 +7,8 @@ public enum DiagnosticFailure: String, Codable, Sendable {
 
     public init(_ error: any Error) {
         if error is CancellationError { self = .cancelled; return }
-        guard let error = error as? CherryError else {
-            self = error is URLError ? .network : .unknown
-            return
-        }
+        // 适配器在边界把传输错误映射为 CherryError（取消保留为 CancellationError），Core 不识别 URLError 等平台类型。
+        guard let error = error as? CherryError else { self = .unknown; return }
         switch error {
         case .deviceNotFound: self = .deviceNotFound
         case .interfaceNotFound: self = .interfaceNotFound

@@ -152,7 +152,7 @@ final class DiagnosticJournalWriter: @unchecked Sendable {
                 if range == .currentRun && record.runID != runID { continue }
                 if range != .currentRun && record.wallTimeUTC < since { continue }
                 guard recordIDs.insert(record.recordID).inserted else { continue }
-                if records.count >= 10000 || bytes + line.count > 16 * 1024 * 1024 { truncated = true; continue }
+                if records.count >= limits.snapshotRecords || bytes + line.count > limits.snapshotBytes { truncated = true; continue }
                 records.append(record); bytes += line.count + 1
             }
         }

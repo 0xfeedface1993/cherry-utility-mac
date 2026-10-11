@@ -8,12 +8,14 @@ public final class DiagnosticExporter: Sendable {
     private let logs = OSLogSnapshotReader()
     private let environment: DiagnosticEnvironment
     private let directory: URL
+    private let configuration: DiagnosticPolicyConfiguration
     private let queue = DispatchQueue(label: "dev.local.cherry.utility.diagnostic-export", qos: .utility)
     private let active = Mutex(false)
     private let packaging = Mutex(false)
 
-    public init(journal: DiagnosticJournal, directory: URL, environment: DiagnosticEnvironment) {
-        self.journal = journal; self.directory = directory; self.environment = environment
+    public init(journal: DiagnosticJournal, directory: URL, environment: DiagnosticEnvironment,
+                configuration: DiagnosticPolicyConfiguration = .init()) {
+        self.journal = journal; self.directory = directory; self.environment = environment; self.configuration = configuration
     }
 
     public func export(range: DiagnosticRange, includeSystemLog: Bool = true) async throws -> DiagnosticExport {
@@ -36,9 +38,9 @@ public final class DiagnosticExporter: Sendable {
         let system = includeSystemLog ? await logs.read(since: since, runID: journal.runID, cutoff: snapshot.cutoff) : SystemLogSnapshot(status: "not_requested")
         try Task.checkCancellation()
         let elapsed = Double(DiagnosticClock.nanoseconds(start.duration(to: .now))) / 1_000_000_000
-        guard elapsed < 30 else { throw DiagnosticExportError.timedOut }
+        guard elapsed < configuration.exportTimeout else { throw DiagnosticExportError.timedOut }
         packaging.withLock { $0 = true }
-        return try await DiagnosticWorker.run(on: queue, timeout: 30 - elapsed,
+        return try await DiagnosticWorker.run(on: queue, timeout: configuration.exportTimeout - elapsed,
             onFinish: { [self] in packaging.withLock { $0 = false } }) { [self] cancellation in
                 try makePackage(snapshot, system: system, journalStatus: journalStatus, range: range,
                                 pending: journal.status.pending, cancellation: cancellation)
@@ -51,7 +53,7 @@ public final class DiagnosticExporter: Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         for url in try temporaryPackages() {
-            if (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast < Date().addingTimeInterval(-86400) {
+            if (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast < Date().addingTimeInterval(-configuration.exportRetention) {
                 try? FileManager.default.removeItem(at: url)
             }
         }
@@ -87,18 +89,20 @@ public final class DiagnosticExporter: Sendable {
         var entries = [("events.ndjson", events), ("metrics.json", metrics), ("README.txt", readme)]
         if !system.records.isEmpty { entries.append(("system-log.ndjson", systemData)) }
         let files = entries.map { DiagnosticManifest.File(name: $0.0, bytes: $0.1.count, sha256: SHA256.hash(data: $0.1).map { String(format: "%02x", $0) }.joined()) }
-        let manifest = DiagnosticManifest(exportID: id, environment: environment, requestedRange: range, generatedAt: Date(),
+        let manifest = DiagnosticManifest(retentionDays: journal.limits.retention / 86400, journalLimitBytes: journal.limits.totalBytes,
+            temporaryExportLimitBytes: configuration.exportBytes, detailSampleDivisor: max(1, configuration.detailSampleDivisor),
+            exportID: id, environment: environment, requestedRange: range, generatedAt: Date(),
             actualStart: snapshot.records.map(\.wallTimeUTC).min(), actualEnd: snapshot.records.map(\.wallTimeUTC).max(),
             runIDs: Array(Set(snapshot.records.map(\.runID))).sorted { $0.uuidString < $1.uuidString }, cutoff: snapshot.cutoff,
             events: snapshot.records.count, dropped: snapshot.dropped, pendingUnflushed: journalStatus == "available" ? 0 : pending,
             recoveredLines: snapshot.recoveredLines, incompleteSpans: incomplete, truncated: snapshot.truncated, partial: partial,
             journalStatus: journalStatus, systemLogStatus: system.status, systemLogOmitted: system.omitted, files: files)
         entries.append(("manifest.json", try encoder.encode(manifest)))
-        let bytes = try DiagnosticZIPWriter.write(entries, to: url, cancellation: cancellation)
-        // 临时导出总量与单包共用 20 MiB 上限，按最旧包淘汰；用户另存的文件不在这里。
+        let bytes = try DiagnosticZIPWriter.write(entries, to: url, limit: configuration.exportBytes, cancellation: cancellation)
+        // 临时导出总量与单包共用 exportBytes 上限，按最旧包淘汰；用户另存的文件不在这里。
         let packages = try temporaryPackages()
         var total = packages.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
-        for old in packages where old != url && total > 20 * 1024 * 1024 {
+        for old in packages where old != url && total > configuration.exportBytes {
             let size = (try? old.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             try FileManager.default.removeItem(at: old); total -= size
         }
@@ -128,7 +132,7 @@ public final class DiagnosticExporter: Sendable {
     public func save(_ export: DiagnosticExport, to destination: URL) async throws {
         guard export.url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL,
               export.url.lastPathComponent == "CHERRY-\(export.id.uuidString).cherrydiag.zip" else { throw DiagnosticExportError.storage }
-        try await DiagnosticWorker.run(on: queue, timeout: 30) { cancellation in
+        try await DiagnosticWorker.run(on: queue, timeout: configuration.exportTimeout) { cancellation in
             try cancellation.check()
             let temporary = destination.deletingLastPathComponent().appendingPathComponent(".cherry-save-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: temporary) }

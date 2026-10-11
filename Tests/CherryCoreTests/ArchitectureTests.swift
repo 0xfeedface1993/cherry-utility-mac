@@ -17,6 +17,21 @@ struct ArchitectureTests {
         return try swift.map { ($0.lastPathComponent, try String(contentsOf: $0, encoding: .utf8)) }
     }
 
+    /// 去掉注释行，只检查代码。
+    static func code(_ text: String) -> String {
+        text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+    }
+
+    /// 观测词表只定义操作和结果；OSLog 命名、界面文案、平台错误识别分别属于适配器和 Features。
+    @Test func coreDiagnosticsHoldNoAdapterOrPresentationDetails() throws {
+        for (name, text) in try Self.files("CherryCore") {
+            let code = Self.code(text)
+            for token in ["StaticString", "signpost", "URLError", "var title", "var message"] {
+                #expect(!code.contains(token), "CherryCore/\(name) 含有 \(token)")
+            }
+        }
+    }
+
     @Test func coreDependsOnlyOnSystemLibraries() throws {
         let allowed: Set<String> = ["Foundation", "CryptoKit", "Synchronization"]
         for (name, text) in try Self.files("CherryCore") {

@@ -8,6 +8,9 @@ public struct DiagnosticJournalLimits: Sendable {
     public var segmentBytes = 4 * 1024 * 1024
     public var totalBytes = 32 * 1024 * 1024
     public var retention: TimeInterval = 7 * 86400
+    /// 一次导出快照最多读取的记录数与事件字节数。
+    public var snapshotRecords = 10_000
+    public var snapshotBytes = 16 * 1024 * 1024
     public init() {}
 }
 
@@ -107,8 +110,8 @@ public final class DiagnosticJournal: Sendable {
             var ids = Set(snapshot.records.map(\.recordID))
             snapshot.records += memory.filter { ids.insert($0.recordID).inserted }
             snapshot.records.sort { $0.wallTimeUTC == $1.wallTimeUTC ? $0.recordID < $1.recordID : $0.wallTimeUTC < $1.wallTimeUTC }
-            if snapshot.records.count > 10000 {
-                snapshot.records = Array(snapshot.records.suffix(10000)); snapshot.truncated = true
+            if snapshot.records.count > limits.snapshotRecords {
+                snapshot.records = Array(snapshot.records.suffix(limits.snapshotRecords)); snapshot.truncated = true
             }
             snapshot.records.sort { $0.runID == $1.runID ? $0.sequence < $1.sequence : $0.runID.uuidString < $1.runID.uuidString }
             return snapshot

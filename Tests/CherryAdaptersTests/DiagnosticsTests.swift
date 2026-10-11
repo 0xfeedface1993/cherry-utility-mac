@@ -14,6 +14,17 @@ import Testing
         .init(operation: op, phase: phase, context: TraceContext(), elapsedNs: 1)
     }
 
+    static func manifest(of export: DiagnosticExport) throws -> [String: Any] {
+        let process = Process(), pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-p", export.url.path, "manifest.json"]
+        process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
     @Test func boundedQueuesPreserveImportantRecordsAndSequence() async throws {
         let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
         var limits = DiagnosticJournalLimits(); limits.normalCapacity = 2; limits.importantCapacity = 1
@@ -113,17 +124,86 @@ import Testing
             environment: .init(appVersion: "1.0", appBuild: "1", simulated: true))
         let exported = try await exporter.export(range: .currentRun, includeSystemLog: false)
         #expect(exported.events == 1)
-        let process = Process(), pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-p", exported.url.path, "manifest.json"]
-        process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
-        try process.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
-        #expect(process.terminationStatus == 0)
-        let manifest = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let manifest = try Self.manifest(of: exported)
         #expect(manifest["events"] as? Int == 1)
+        #expect(manifest["retention_days"] as? Int == 7 && manifest["detail_sample_divisor"] as? Int == 64)
         #expect(manifest["system_log_status"] as? String == "not_requested")
         #expect((manifest["files"] as? [[String: Any]])?.allSatisfy { ($0["sha256"] as? String)?.count == 64 } == true)
+    }
+}
+
+@Suite("策略配置单一来源")
+struct DiagnosticPolicyConfigurationTests {
+    static func runtime(_ configuration: DiagnosticPolicyConfiguration) throws -> (DiagnosticsRuntime, URL) {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("CherryDiagnostics-\(UUID().uuidString)")
+        let runtime = DiagnosticsRuntime(directory: dir, environment: .init(appVersion: "1.0", appBuild: "1", simulated: true),
+                                         mode: .standard, configuration: configuration)
+        return (runtime, dir)
+    }
+
+    @Test func manifestReportsThePolicyActuallyInEffect() async throws {
+        var configuration = DiagnosticPolicyConfiguration()
+        configuration.journal.totalBytes = 3000
+        configuration.journal.retention = 43_200
+        configuration.exportBytes = 1024 * 1024
+        configuration.detailSampleDivisor = 8
+        let (runtime, dir) = try Self.runtime(configuration)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        runtime.port.emit(.launch)
+        let exported = try await runtime.export(range: .currentRun, includeSystemLog: false)
+        let manifest = try DiagnosticAdapterTests.manifest(of: exported)
+        #expect(manifest["journal_limit_bytes"] as? Int == 3000)
+        #expect(manifest["retention_days"] as? Double == 0.5)
+        #expect(manifest["temporary_export_limit_bytes"] as? Int == 1024 * 1024)
+        #expect(manifest["detail_sample_divisor"] as? Int == 8)
+        #expect(runtime.status.mode == .standard && runtime.status.expiresAt == nil)
+    }
+
+    @Test func policyUsesConfiguredDurationsSamplingAndCaps() {
+        let time = Mutex<UInt64>(0)
+        var configuration = DiagnosticPolicyConfiguration()
+        configuration.detailedDuration = .seconds(2)
+        configuration.detailSampleDivisor = 1
+        configuration.samplesPerTrace = 3
+        let policy = DiagnosticPolicy(mode: .detailed, clock: .init(now: { time.withLock { $0 } }), configuration: configuration)
+        let trace = UUID()
+        #expect((0..<5).map { _ in policy.includes(.otaACK, traceID: trace) } == [true, true, true, false, false])
+        time.withLock { $0 = 2_000_000_000 }
+        #expect(policy.status.0 == .standard)
+        #expect(!policy.includes(.otaACK))
+    }
+
+    @Test func timelineSamplesCarryTheConfiguredDivisor() {
+        var configuration = DiagnosticPolicyConfiguration()
+        configuration.detailSampleDivisor = 4
+        let events = Mutex<[DiagnosticEvent]>([])
+        let logger = OSLogDiagnostics(mode: .profile, configuration: configuration, sink: { event in events.withLock { $0.append(event) } })
+        for _ in 0..<8 { logger.port.begin(.otaACK, context: TraceContext(origin: .profile)).finish() }
+        let finished = events.withLock { $0.filter { $0.phase == .finished } }
+        #expect(finished.count == 2 && finished.allSatisfy { $0.metrics.sampleDivisor == 4 })
+    }
+
+    /// 保存与删除只作用于本目录下的具名临时包，伪造的路径不会触及用户文件。
+    @Test func saveAndDiscardOnlyTouchOwnPackages() async throws {
+        let (runtime, dir) = try Self.runtime(.init())
+        defer { try? FileManager.default.removeItem(at: dir) }
+        runtime.port.emit(.launch)
+        let exported = try await runtime.export(range: .currentRun, includeSystemLog: false)
+        let saved = dir.appendingPathComponent("saved.cherrydiag.zip")
+        try await runtime.save(exported, to: saved)
+        #expect(FileManager.default.fileExists(atPath: saved.path))
+
+        let elsewhere = dir.appendingPathComponent("Elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let victim = elsewhere.appendingPathComponent(exported.url.lastPathComponent)
+        try Data("user".utf8).write(to: victim)
+        let forged = DiagnosticExport(id: exported.id, url: victim, bytes: 4, events: 0, partial: false, dropped: 0)
+        await #expect(throws: DiagnosticExportError.storage) { try await runtime.save(forged, to: dir.appendingPathComponent("x.zip")) }
+        runtime.discard(forged)
+        runtime.discard(exported)
+        for _ in 0..<100 where FileManager.default.fileExists(atPath: exported.url.path) { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(!FileManager.default.fileExists(atPath: exported.url.path))
+        #expect(FileManager.default.fileExists(atPath: victim.path))
     }
 }
 

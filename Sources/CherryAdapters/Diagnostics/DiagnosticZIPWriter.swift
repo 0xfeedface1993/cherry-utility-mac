@@ -1,7 +1,7 @@
 import CherryCore
 import Foundation
 
-/// 标准 ZIP stored 格式，无外部进程；总包小于 20 MiB，不需要 ZIP64。
+/// 标准 ZIP stored 格式，无外部进程；上限由导出策略给出（默认 20 MiB），远小于需要 ZIP64 的 4 GiB。
 enum DiagnosticZIPWriter {
     private static let crcTable: [UInt32] = (0..<256).map { value in
         var crc = UInt32(value)
@@ -9,7 +9,7 @@ enum DiagnosticZIPWriter {
         return crc
     }
 
-    static func write(_ entries: [(String, Data)], to url: URL, cancellation: DiagnosticCancellation) throws -> Int {
+    static func write(_ entries: [(String, Data)], to url: URL, limit: Int, cancellation: DiagnosticCancellation) throws -> Int {
         guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw DiagnosticExportError.storage }
         let file = try FileHandle(forWritingTo: url)
         defer { try? file.close() }
@@ -18,7 +18,7 @@ enum DiagnosticZIPWriter {
         func u32(_ value: UInt32, into data: inout Data) { var v = value.littleEndian; withUnsafeBytes(of: &v) { data.append(contentsOf: $0) } }
         for (name, data) in entries {
             try cancellation.check()
-            guard !name.contains("/"), data.count < 20 * 1024 * 1024 else { throw DiagnosticExportError.tooLarge }
+            guard !name.contains("/"), data.count < limit else { throw DiagnosticExportError.tooLarge }
             let filename = Data(name.utf8), size = UInt32(data.count)
             var crc: UInt32 = 0xFFFF_FFFF
             for (index, byte) in data.enumerated() {
@@ -38,7 +38,7 @@ enum DiagnosticZIPWriter {
             u16(UInt16(filename.count), into: &entry); u16(0, into: &entry); u16(0, into: &entry)
             u16(0, into: &entry); u16(0, into: &entry); u32(0, into: &entry); u32(offset, into: &entry)
             entry.append(filename); central.append(entry)
-            guard Int(offset) + header.count + data.count + central.count + 22 <= 20 * 1024 * 1024 else { throw DiagnosticExportError.tooLarge }
+            guard Int(offset) + header.count + data.count + central.count + 22 <= limit else { throw DiagnosticExportError.tooLarge }
             try file.write(contentsOf: header)
             var position = 0
             while position < data.count {

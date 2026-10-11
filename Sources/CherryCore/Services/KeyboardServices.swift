@@ -201,6 +201,11 @@ public struct FirmwareUpdateService: Sendable {
         return try Self.makePackage(data: data, source: .catalog(release), expectedMD5: release.md5, diagnostics: diagnostics)
     }
 
+    /// 用户选择的本地升级包：没有目录 MD5 可比对，只解析并校验 CRC。读取文件是调用方（App 的文件访问）的职责。
+    func loadLocalImpl(_ data: Data, from url: URL) throws -> FirmwarePackage {
+        try Self.makePackage(data: data, source: .localFile(url), diagnostics: diagnostics)
+    }
+
     /// Verifies the file hash (when known), extracts the image and checks its CRC.
     public static func makePackage(data: Data, source: FirmwarePackage.Source, expectedMD5: String? = nil, diagnostics: Diagnostics = .noop) throws -> FirmwarePackage {
         let md5 = diagnostics.measure(.firmwareMD5, metrics: .init(bytes: UInt64(data.count))) { Insecure.MD5.hash(data: data).map { String(format: "%02X", $0) }.joined() }

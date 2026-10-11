@@ -8,11 +8,13 @@ public final class DiagnosticsRuntime: Sendable {
     public let exporter: DiagnosticExporter
     public var port: Diagnostics { logger.port }
 
-    public init(directory: URL, environment: DiagnosticEnvironment, mode: DiagnosticMode = .standard) {
-        let journal = DiagnosticJournal(directory: directory)
+    public init(directory: URL, environment: DiagnosticEnvironment, mode: DiagnosticMode = .standard,
+                configuration: DiagnosticPolicyConfiguration = .init()) {
+        let journal = DiagnosticJournal(directory: directory, limits: configuration.journal)
         self.journal = journal
-        logger = OSLogDiagnostics(mode: mode, journal: journal)
-        exporter = DiagnosticExporter(journal: journal, directory: directory.appendingPathComponent("Exports", isDirectory: true), environment: environment)
+        logger = OSLogDiagnostics(mode: mode, journal: journal, configuration: configuration)
+        exporter = DiagnosticExporter(journal: journal, directory: directory.appendingPathComponent("Exports", isDirectory: true),
+                                      environment: environment, configuration: configuration)
     }
 
     public var status: DiagnosticStatus {
@@ -22,10 +24,11 @@ public final class DiagnosticsRuntime: Sendable {
         return status
     }
     public func setMode(_ mode: DiagnosticMode) { logger.setMode(mode) }
-    public func export(range: DiagnosticRange) async throws -> DiagnosticExport {
+    public func export(range: DiagnosticRange, includeSystemLog: Bool = true) async throws -> DiagnosticExport {
         logger.flushAggregates()
-        return try await exporter.export(range: range)
+        return try await exporter.export(range: range, includeSystemLog: includeSystemLog)
     }
     public func discard(_ export: DiagnosticExport) { exporter.discard(export) }
+    public func save(_ export: DiagnosticExport, to destination: URL) async throws { try await exporter.save(export, to: destination) }
     public func flush() async throws { logger.flushAggregates(); try await journal.flush() }
 }

@@ -147,9 +147,8 @@ public struct DeviceInfoFeature: Sendable {
 
             case .vendorLoaded(let result, let revision, let generation):
                 guard generation == nil || generation == state.loadGeneration else { return .none }
-                guard state.isConnected else { diagnostics.emit(.resultIgnored, origin: .deviceInfo, outcome: .ignored); return .none }
-                guard revision == nil || revision == state.configurationRevision || state.vendor.value == nil else {
-                    diagnostics.emit(.resultIgnored, origin: .deviceInfo, outcome: .ignored); return .none
+                guard state.isConnected, revision == nil || revision == state.configurationRevision || state.vendor.value == nil else {
+                    return .record(.resultIgnored, origin: .deviceInfo, outcome: .ignored, with: diagnostics)
                 }
                 switch result {
                 case .success(var snapshot):
@@ -160,13 +159,12 @@ public struct DeviceInfoFeature: Sendable {
                     state.vendor = .loaded(snapshot)
                     state.lastUpdated = now
                     state.refreshError = nil
-                    diagnostics.emit(.resultApplied, origin: .deviceInfo, outcome: .success)
+                    return .record(.resultApplied, origin: .deviceInfo, outcome: .success, with: diagnostics)
                 case .failure(let error):
                     if state.vendor.value == nil { state.vendor = .failed(error.userMessage) }
                     state.refreshError = error.userMessage
-                    diagnostics.emit(.resultApplied, origin: .deviceInfo, outcome: .failed)
+                    return .record(.resultApplied, origin: .deviceInfo, outcome: .failed, with: diagnostics)
                 }
-                return .none
 
             case .batteryLoaded(.success(let battery)):
                 guard state.isConnected else { return .none }

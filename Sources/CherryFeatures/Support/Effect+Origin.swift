@@ -17,4 +17,10 @@ extension Effect {
             catch: handler, fileID: fileID, filePath: filePath, line: line, column: column
         )
     }
+
+    /// reducer 不直接写观测：结果被采用或忽略由它决定，记录作为 effect 执行。
+    static func record(_ operation: DiagnosticOperation, origin: DiagnosticOrigin, outcome: DiagnosticOutcome?,
+                       with diagnostics: Diagnostics) -> Self {
+        .run(origin: origin) { _ in diagnostics.emit(operation, outcome: outcome) }
+    }
 }

@@ -41,9 +41,9 @@ final class ProfileRunner {
         guard begins.subtracting(ends).isEmpty, ends.subtracting(begins).isEmpty else { throw ProfileError.assertion("incomplete trace") }
         // 导出独立于场景计时，禁止把打包成本混进业务延迟。
         let start = ContinuousClock.now, resources = ProfileResources.current()
-        let artifact = try await runtime.exporter.export(range: .currentRun, includeSystemLog: false)
+        let artifact = try await runtime.export(range: .currentRun, includeSystemLog: false)
         let saved = options.output.appendingPathComponent("evidence.cherrydiag.zip")
-        try await runtime.exporter.save(artifact, to: saved)
+        try await runtime.save(artifact, to: saved)
         runtime.discard(artifact)
         rows.append(ProfileRow("S7.export", durations: [DiagnosticClock.nanoseconds(start.duration(to: .now))], start: start, resources: resources))
         #if DEBUG
@@ -69,6 +69,11 @@ final class ProfileRunner {
     func duration<T>(_ body: () async throws -> T) async rethrows -> UInt64 {
         let start = ContinuousClock.now; _ = try await body(); return DiagnosticClock.nanoseconds(start.duration(to: .now))
     }
+    /// 与 App 相同的 Core 装配，只把被驱动端口换成模拟键盘。
+    func services(_ hub: SimulatedKeyboardHub) -> CoreServices {
+        let catalog = SimulatedFirmwareCatalog()
+        return CoreServices(discovery: hub, channels: hub, catalog: catalog, downloader: catalog, diagnostics: diagnostics)
+    }
     func keyboard(_ hub: SimulatedKeyboardHub) async throws -> KeyboardSummary {
         guard let keyboard = await hub.keyboards().first else { throw ProfileError.assertion("missing simulated device") }; return keyboard
     }
@@ -79,7 +84,7 @@ final class ProfileRunner {
                 samples.append(try await duration {
                     let hub = SimulatedKeyboardHub(scenario: .named(name), diagnostics: diagnostics)
                     if let keyboard = await hub.keyboards().first {
-                        _ = try await KeyboardInspector(channels: ExclusiveChannelProvider(base: hub, diagnostics: diagnostics), diagnostics: diagnostics).vendorSnapshot(of: keyboard)
+                        _ = try await services(hub).inspector.vendorSnapshot(of: keyboard)
                     }
                 })
             }
@@ -88,8 +93,7 @@ final class ProfileRunner {
     }
     func reads() async throws {
         let hub = hub(), keyboard = try await keyboard(hub)
-        let channels = ExclusiveChannelProvider(base: hub, diagnostics: diagnostics)
-        let inspector = KeyboardInspector(channels: channels, diagnostics: diagnostics)
+        let inspector = services(hub).inspector
         let start = ContinuousClock.now, resources = ProfileResources.current(); var samples: [UInt64] = []
         for _ in 0..<30 { samples.append(try await duration { try await inspector.vendorSnapshot(of: keyboard) }) }
         rows.append(.init("S2.serial", durations: samples, start: start, resources: resources))
@@ -108,7 +112,7 @@ final class ProfileRunner {
     }
     func writes() async throws {
         let hub = hub(), keyboard = try await keyboard(hub)
-        let configurator = KeyboardConfigurator(channels: ExclusiveChannelProvider(base: hub, diagnostics: diagnostics), diagnostics: diagnostics)
+        let configurator = services(hub).configurator
         let initial = try await configurator.configuration(of: keyboard)
         let start = ContinuousClock.now, resources = ProfileResources.current(); var values: [UInt64] = []
         for i in 0..<100 {
@@ -149,23 +153,22 @@ final class ProfileRunner {
             data = try Data(contentsOf: url)
             officialHash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         } else { data = SyntheticUpdater.updaterExe(for: .pixiu75, version: 0x0118) }
+        // 与 App 的“本地升级包”同一路径：服务解析并计量，文件读取在此之前完成。
+        let firmware = services(hub()).firmware
         let start = ContinuousClock.now, resources = ProfileResources.current(); var values: [UInt64] = []
         for _ in 0..<10 {
             values.append(try await duration {
-                let package = try diagnostics.measure(.firmwareParse, origin: .profile, metrics: .init(bytes: UInt64(data.count))) {
-                    try FirmwareUpdateService.makePackage(data: data, source: .localFile(URL(fileURLWithPath: "/fixture.exe")), diagnostics: diagnostics)
-                }
+                let package = try firmware.loadLocal(data, from: URL(fileURLWithPath: "/fixture.exe"))
                 let proto = try TelinkOTAProtocol(reportID: package.image.reportID, reportLength: 64)
-                let reports = diagnostics.measure(.otaReports, origin: .profile) { proto.transferReports(firmware: package.image.firmware) }
+                let reports = diagnostics.measure(.otaReports) { proto.transferReports(firmware: package.image.firmware) }
                 guard !reports.0.isEmpty else { throw ProfileError.assertion("no reports") }
             })
         }
         rows.append(.init("S5.parse", durations: values, start: start, resources: resources, note: options.updater == nil ? "固定合成文件；内存暖解析" : "固定官方文件；内存暖解析"))
     }
     func ota() async throws {
-        let hub = hub(), keyboard = try await keyboard(hub), catalog = SimulatedFirmwareCatalog()
-        let channels = ExclusiveChannelProvider(base: hub, diagnostics: diagnostics)
-        let service = FirmwareUpdateService(catalog: catalog, downloader: catalog, channels: channels, discovery: hub, diagnostics: diagnostics)
+        let hub = hub(), keyboard = try await keyboard(hub)
+        let service = services(hub).firmware
         let package = try FirmwareUpdateService.makePackage(data: SyntheticUpdater.updaterExe(for: .pixiu75, version: 0x0118), source: .localFile(URL(fileURLWithPath: "/fixture.exe")))
         let start = ContinuousClock.now, resources = ProfileResources.current()
         let value = try await duration {
@@ -175,18 +178,19 @@ final class ProfileRunner {
         }
         rows.append(.init("S6.ota", durations: [value], start: start, resources: resources, note: "合成 6000 字节固件，1 ms 回复；含重连 CRC 核对"))
         let cancelHub = self.hub(delay: .milliseconds(3)), cancelKeyboard = try await self.keyboard(cancelHub)
-        let cancelService = FirmwareUpdateService(catalog: catalog, downloader: catalog, channels: ExclusiveChannelProvider(base: cancelHub, diagnostics: diagnostics), discovery: cancelHub, diagnostics: diagnostics)
-        let task = Task { try await cancelService.flash(keyboard: cancelKeyboard, package: package) { _ in } }
+        let cancelServices = services(cancelHub)
+        let task = Task { try await cancelServices.firmware.flash(keyboard: cancelKeyboard, package: package) { _ in } }
         try await Task.sleep(for: .milliseconds(20))
         let cancelStart = ContinuousClock.now, cancelResources = ProfileResources.current(); task.cancel()
         do { _ = try await task.value; throw ProfileError.assertion("cancellation ignored") } catch is CancellationError { }
-        _ = try await KeyboardInspector(channels: ExclusiveChannelProvider(base: cancelHub), diagnostics: .noop).vendorSnapshot(of: cancelKeyboard)
+        // 同一个独占通道：中断的刷写若没有释放接口，这次读取会一直等待。
+        _ = try await cancelServices.inspector.vendorSnapshot(of: cancelKeyboard)
         rows.append(.init("S6.cancel", durations: [DiagnosticClock.nanoseconds(cancelStart.duration(to: .now))], start: cancelStart, resources: cancelResources, note: "中断后再次读取成功；含清理后读取"))
     }
     func idle() async throws {
         let start = ContinuousClock.now, resources = ProfileResources.current()
         let hub = hub(), keyboard = try await keyboard(hub)
-        let inspector = KeyboardInspector(channels: ExclusiveChannelProvider(base: hub, diagnostics: diagnostics), diagnostics: diagnostics)
+        let inspector = services(hub).inspector
         var polls = 0
         for second in stride(from: 0, to: options.idleSeconds, by: 60) {
             _ = try await inspector.vendorSnapshot(of: keyboard); polls += 1

@@ -14,7 +14,6 @@ struct CherryUtilityApp: App {
     init() {
         let root = CompositionRoot()
         let runtime = root.diagnosticRuntime
-        AppDelegate.flushDiagnostics = { try? await runtime.flush() }
         simulation = root.simulation
         let store = Store(initialState: AppFeature.State()) {
             AppFeature()
@@ -25,6 +24,8 @@ struct CherryUtilityApp: App {
         store.send(.task)
         simulation?.keyInput.start()
         _store = State(initialValue: store)
+        // init 中取到的就是 SwiftUI 之后回调的 delegate 实例（2026-10-11 用最小程序验证过）。
+        appDelegate.flushDiagnostics = { try? await runtime.flush() }
     }
 
     var body: some Scene {
@@ -53,11 +54,12 @@ struct CherryUtilityApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    static var flushDiagnostics: (@Sendable () async -> Void)?
+    /// 由 App 在启动时注入；退出前尽力写完诊断 journal。
+    var flushDiagnostics: (@Sendable () async -> Void)?
     private var terminationTask: Task<Void, Never>?
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let flush = Self.flushDiagnostics else { return .terminateNow }
+        guard let flush = flushDiagnostics else { return .terminateNow }
         if terminationTask == nil {
             terminationTask = Task { @MainActor in
                 await flush() // writer 等待有 2 秒上限，不能无限阻止退出。

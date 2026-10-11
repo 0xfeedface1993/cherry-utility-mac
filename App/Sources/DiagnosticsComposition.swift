@@ -27,12 +27,12 @@ enum DiagnosticsComposition {
         dependencies.diagnostics = runtime.port
         dependencies.diagnosticsClient = DiagnosticsClient(
             status: { runtime.status },
-            setMode: { mode in DiagnosticOrigin.$current.withValue(.app) { runtime.setMode(mode) } },
+            setMode: { runtime.setMode($0) },
             export: { try await runtime.export(range: $0) },
             save: { export in
                 guard let destination = await DiagnosticSavePanel.destination(for: export) else { return false }
                 try Task.checkCancellation()
-                try await runtime.exporter.save(export, to: destination)
+                try await runtime.save(export, to: destination)
                 return true
             }, discard: { runtime.discard($0) })
     }

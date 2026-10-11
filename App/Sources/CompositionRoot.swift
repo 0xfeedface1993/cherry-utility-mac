@@ -5,8 +5,8 @@ import CherryFeatures
 import ComposableArchitecture
 import Foundation
 
-/// The only place that knows about concrete adapters: builds them once and plugs core services
-/// into the feature clients.
+/// The only place that knows about concrete adapters: builds them once, hands them to `CoreServices`
+/// (the shared Core assembly) and plugs the services into the feature clients. No use-case logic lives here.
 ///
 /// Launched with `CHERRY_SIMULATION=<scenario>` (UI tests, demos) every driven adapter is replaced by the in-memory
 /// simulated keyboard, so the full core stack runs without hardware or Input Monitoring.
@@ -14,11 +14,8 @@ struct CompositionRoot {
     private let discovery: any KeyboardDiscoveryPort
     private let keySource: any KeyEventSource
     private let access: any InputMonitoringPort
-    private let inspector: KeyboardInspector
-    private let configurator: KeyboardConfigurator
-    private let configurationWriter: KeyboardConfigurationWriter
+    private let services: CoreServices
     private let presets: PresetLibrary
-    private let firmware: FirmwareUpdateService
     /// Set in simulation mode only.
     let simulation: SimulationControls?
     let diagnosticRuntime: DiagnosticsRuntime
@@ -52,14 +49,11 @@ struct CompositionRoot {
             simulation = nil
         }
 
-        // One queue per keyboard interface: the status item, the open screens and the firmware tab take turns
-        // instead of failing with "interface busy".
-        let channels = ExclusiveChannelProvider(base: channelBase, diagnostics: diagnostics)
-        inspector = KeyboardInspector(channels: channels, diagnostics: diagnostics)
-        configurator = KeyboardConfigurator(channels: channels, diagnostics: diagnostics)
-        configurationWriter = KeyboardConfigurationWriter(configurator: configurator)
+        services = CoreServices(
+            discovery: discovery, channels: channelBase, catalog: CachedFirmwareCatalog(base: catalog), downloader: catalog,
+            diagnostics: diagnostics
+        )
         presets = PresetLibrary(store: FileProfilePresetStore(directory: presetDirectory, diagnostics: diagnostics))
-        firmware = FirmwareUpdateService(catalog: CachedFirmwareCatalog(base: catalog), downloader: catalog, channels: channels, discovery: discovery, diagnostics: diagnostics)
     }
 
     func install(into dependencies: inout DependencyValues) {
@@ -67,42 +61,26 @@ struct CompositionRoot {
         let discovery = discovery
         let keySource = keySource
         let access = access
-        let inspector = inspector
-        let configurator = configurator
-        let configurationWriter = configurationWriter
+        let services = services
+        let inspector = services.inspector
+        let configurator = services.configurator
+        let writer = services.writer
+        let firmware = services.firmware
         let presets = presets
-        let firmware = firmware
         let simulation = simulation
-        let diagnostics = diagnosticRuntime.port
 
         dependencies.keyboardClient = KeyboardClient(
             keyboards: { await discovery.keyboards() },
-            updates: {
-                AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-                    let task = Task {
-                        for await list in discovery.keyboardUpdates() {
-                            guard !Task.isCancelled else { break }
-                            await configurationWriter.keyboardsUpdated(list)
-                            continuation.yield(list)
-                        }
-                        continuation.finish()
-                    }
-                    continuation.onTermination = { _ in task.cancel() }
-                }
-            },
+            updates: { services.keyboardUpdates() },
             vendorSnapshot: { try await inspector.vendorSnapshot(of: $0) },
             battery: { try await inspector.battery(of: $0) },
             firmwareStatus: { try await inspector.firmwareStatus(of: $0) }
         )
         dependencies.configurationClient = ConfigurationClient(
             configuration: { try await configurator.configuration(of: $0) },
-            activateProfile: { try await configurationWriter.apply(.activate($0), on: $1) },
-            updateProfile: { profile, keyboard, patch in
-                let saved = try await configurationWriter.apply(.update(profile, patch: patch), on: keyboard)
-                guard let config = saved.profile(profile) else { throw CherryError.writeNotApplied("配置档读回缺失") }
-                return config
-            },
-            applyIntent: { try await configurationWriter.apply($0, on: $1) }
+            activateProfile: { try await writer.apply(.activate($0), on: $1) },
+            updateProfile: { try await writer.update(profile: $0, patch: $2, on: $1) },
+            applyIntent: { try await writer.apply($0, on: $1) }
         )
         dependencies.presetClient = PresetClient(
             presets: { try await presets.presets() },
@@ -128,7 +106,7 @@ struct CompositionRoot {
         dependencies.firmwareClient = FirmwareClient(
             latestRelease: { try await firmware.latestRelease(for: $0) },
             download: { try await firmware.download($0) },
-            loadLocal: { try await LocalUpdaterFile.package(at: $0, diagnostics: diagnostics) },
+            loadLocal: { url in try firmware.loadLocal(try await LocalFile.read(url), from: url) },
             deviceFirmware: { try await firmware.deviceFirmware(keyboard: $0, package: $1) },
             flash: { try await firmware.flash(keyboard: $0, package: $1, progress: $2) },
             verifyAfterFlash: { try await firmware.verifyAfterFlash(keyboard: $0, package: $1) }
@@ -156,15 +134,6 @@ enum SystemSettings {
     static func openInputMonitoring() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
             NSWorkspace.shared.open(url)
-        }
-    }
-}
-
-enum LocalUpdaterFile {
-    static func package(at url: URL, diagnostics: Diagnostics) async throws -> FirmwarePackage {
-        let data = try await LocalFile.read(url)
-        return try diagnostics.measure(.firmwareParse, origin: .firmware, metrics: .init(bytes: UInt64(data.count))) {
-            try FirmwareUpdateService.makePackage(data: data, source: .localFile(url), diagnostics: diagnostics)
         }
     }
 }

@@ -112,12 +112,15 @@ Packages/CherryKit
 │   ├─ Protocol      VendorPacket(0xFF1C 读/写/开始/结束) · TelinkOTAProtocol(0xFFEF) · HIDReportLayout
 │   ├─ Firmware      UpdaterImage(.NET 资源提取) · Checksums · FirmwarePackage
 │   ├─ Ports         HIDReportChannel · KeyboardDiscoveryPort · KeyEventSource · FirmwareCatalogPort · ProfilePresetStore …
-│   └─ Services      VendorSession · KeyboardInspector · KeyboardConfigurator · PresetLibrary
+│   ├─ Diagnostics   观测端口 Diagnostics · TraceContext / DiagnosticOrigin（来源只由驱动侧声明）· 事件词表
+│   └─ Services      VendorSession · KeyboardInspector · KeyboardConfigurator · KeyboardConfigurationWriter · PresetLibrary
 │                    FirmwareFlasher · FirmwareUpdateService · ExclusiveChannelProvider(按接口排队)
+│                    CoreServices（App 与 Profile 工具共用的服务装配）
 ├─ CherryAdapters    被驱动适配器：IOKit HID（专用 run-loop 线程）· URLSession 固件目录 + 磁盘缓存 · 预设 JSON 文件库
+│                    诊断：OSLog / signpost、有界 journal、导出（策略统一由 DiagnosticPolicyConfiguration 给出）
 └─ CherryFeatures    驱动适配器：TCA Reducer + SwiftUI（依赖客户端只声明接口，不含 liveValue）
                      App · DeviceInfo · Configuration(草稿编辑 ProfileEditor) · MenuBar · KeyTest · Firmware
-App/                  组合根：创建适配器，组装 Core 服务，通过 withDependencies 注入；主窗口 + MenuBarExtra
+App/                  组合根：创建适配器交给 CoreServices，通过 withDependencies 注入，不含业务逻辑；主窗口 + MenuBarExtra
 ```
 
 并发模型：

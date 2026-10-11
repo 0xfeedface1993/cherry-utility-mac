@@ -15,15 +15,20 @@ enum DiagnosticsComposition {
                 ?? FileManager.default.temporaryDirectory.appendingPathComponent("CherryUtility-Diagnostics-\(UUID().uuidString)")
         } else { directory = support.appendingPathComponent("Diagnostics", isDirectory: true) }
         let mode = environment["CHERRY_DIAGNOSTIC_MODE"].flatMap(DiagnosticMode.init(rawValue:)) ?? (simulated ? .off : .standard)
-        return DiagnosticsRuntime(directory: directory, environment: .init(
+        let runtime = DiagnosticsRuntime(directory: directory, environment: .init(
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0",
             appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1", simulated: simulated), mode: mode)
+        // 启动属于 App 生命周期，由组合根记录；诊断适配器不自行声明来源。
+        runtime.port.emit(.launch, origin: .app, metrics: .init(statusCode: simulated ? 1 : 0))
+        return runtime
     }
 
     static func install(_ runtime: DiagnosticsRuntime, into dependencies: inout DependencyValues) {
         dependencies.diagnostics = runtime.port
         dependencies.diagnosticsClient = DiagnosticsClient(
-            status: { runtime.status }, setMode: { runtime.setMode($0) }, export: { try await runtime.export(range: $0) },
+            status: { runtime.status },
+            setMode: { mode in DiagnosticOrigin.$current.withValue(.app) { runtime.setMode(mode) } },
+            export: { try await runtime.export(range: $0) },
             save: { export in
                 guard let destination = await DiagnosticSavePanel.destination(for: export) else { return false }
                 try Task.checkCancellation()

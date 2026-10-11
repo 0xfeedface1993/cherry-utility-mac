@@ -20,15 +20,19 @@ struct CompositionRoot {
     private let firmware: FirmwareUpdateService
     /// Set in simulation mode only.
     let simulation: SimulationControls?
+    let diagnosticRuntime: DiagnosticsRuntime
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let support = URL.applicationSupportDirectory.appending(path: "CherryUtility", directoryHint: .isDirectory)
+        let runtime = DiagnosticsComposition.make(support: support, environment: environment)
+        diagnosticRuntime = runtime
+        let diagnostics = runtime.port
         let catalog: any FirmwareCatalogPort & FirmwareDownloadPort
         let channelBase: any ReportChannelProvider
         var presetDirectory = support.appending(path: "Presets", directoryHint: .isDirectory)
 
         if let scenario = environment["CHERRY_SIMULATION"] {
-            let hub = SimulatedKeyboardHub(scenario: .named(scenario))
+            let hub = SimulatedKeyboardHub(scenario: .named(scenario), diagnostics: diagnostics)
             discovery = hub
             keySource = hub
             access = hub
@@ -38,25 +42,26 @@ struct CompositionRoot {
                 ?? FileManager.default.temporaryDirectory.appending(path: "CherryUtility-Simulation-\(UUID().uuidString)", directoryHint: .isDirectory)
             simulation = SimulationControls(hub: hub)
         } else {
-            let hid = IOKitHIDService(loop: HIDEventLoop())
+            let hid = IOKitHIDService(loop: HIDEventLoop(diagnostics: diagnostics))
             discovery = hid
             keySource = hid
-            access = InputMonitoringAccess()
+            access = InputMonitoringAccess(diagnostics: diagnostics)
             channelBase = hid
-            catalog = CherryFirmwareCatalog(cacheDirectory: support.appending(path: "Firmware", directoryHint: .isDirectory))
+            catalog = CherryFirmwareCatalog(cacheDirectory: support.appending(path: "Firmware", directoryHint: .isDirectory), diagnostics: diagnostics)
             simulation = nil
         }
 
         // One queue per keyboard interface: the status item, the open screens and the firmware tab take turns
         // instead of failing with "interface busy".
-        let channels = ExclusiveChannelProvider(base: channelBase)
-        inspector = KeyboardInspector(channels: channels)
-        configurator = KeyboardConfigurator(channels: channels)
-        presets = PresetLibrary(store: FileProfilePresetStore(directory: presetDirectory))
-        firmware = FirmwareUpdateService(catalog: catalog, downloader: catalog, channels: channels, discovery: discovery)
+        let channels = ExclusiveChannelProvider(base: channelBase, diagnostics: diagnostics)
+        inspector = KeyboardInspector(channels: channels, diagnostics: diagnostics)
+        configurator = KeyboardConfigurator(channels: channels, diagnostics: diagnostics)
+        presets = PresetLibrary(store: FileProfilePresetStore(directory: presetDirectory, diagnostics: diagnostics))
+        firmware = FirmwareUpdateService(catalog: CachedFirmwareCatalog(base: catalog), downloader: catalog, channels: channels, discovery: discovery, diagnostics: diagnostics)
     }
 
     func install(into dependencies: inout DependencyValues) {
+        DiagnosticsComposition.install(diagnosticRuntime, into: &dependencies)
         let discovery = discovery
         let keySource = keySource
         let access = access
@@ -65,6 +70,7 @@ struct CompositionRoot {
         let presets = presets
         let firmware = firmware
         let simulation = simulation
+        let diagnostics = diagnosticRuntime.port
 
         dependencies.keyboardClient = KeyboardClient(
             keyboards: { await discovery.keyboards() },
@@ -102,7 +108,7 @@ struct CompositionRoot {
         dependencies.firmwareClient = FirmwareClient(
             latestRelease: { try await firmware.latestRelease(for: $0) },
             download: { try await firmware.download($0) },
-            loadLocal: { try await LocalUpdaterFile.package(at: $0) },
+            loadLocal: { try await LocalUpdaterFile.package(at: $0, diagnostics: diagnostics) },
             deviceFirmware: { try await firmware.deviceFirmware(keyboard: $0, package: $1) },
             flash: { try await firmware.flash(keyboard: $0, package: $1, progress: $2) },
             verifyAfterFlash: { try await firmware.verifyAfterFlash(keyboard: $0, package: $1) }
@@ -135,8 +141,11 @@ enum SystemSettings {
 }
 
 enum LocalUpdaterFile {
-    static func package(at url: URL) async throws -> FirmwarePackage {
-        try FirmwareUpdateService.makePackage(data: try await LocalFile.read(url), source: .localFile(url))
+    static func package(at url: URL, diagnostics: Diagnostics) async throws -> FirmwarePackage {
+        let data = try await LocalFile.read(url)
+        return try diagnostics.measure(.firmwareParse, origin: .firmware, metrics: .init(bytes: UInt64(data.count))) {
+            try FirmwareUpdateService.makePackage(data: data, source: .localFile(url), diagnostics: diagnostics)
+        }
     }
 }
 

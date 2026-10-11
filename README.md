@@ -71,6 +71,24 @@ xcrun xccov view --report build/unit-coverage.xcresult
 
 测试用例方案、2026-10-11 的验证结果、已修复问题和后续验证范围见 [单元测试方案与覆盖率验证](Docs/单元测试方案与覆盖率验证.md)。行覆盖率不能替代业务分支和 UI／真机验证。
 
+### 日志、导出与性能证据
+
+默认标准模式使用 `Logger`、Instruments signpost 和有界本地 journal。菜单栏「诊断」或 Help →「诊断与日志…」（⌘⇧D）打开共享窗口，可选择标准、详细（15 分钟）、Profile（10 分钟）或关闭；详细模式到期回到标准。
+
+选择最近 15 分钟、本次运行或最近 24 小时，生成包后用「保存…」另存 `.cherrydiag.zip`。包中含白名单事件、纳秒直方图、manifest 和 SHA-256；缺失/裁剪会明确标注。OSLogStore 只尽力补充当前进程，读取失败仍可保存。不会记录按键内容、原始报文、预设名称、用户路径或任意错误文本；不会自动上传。
+
+真实运行的诊断目录为 `~/Library/Application Support/CherryUtility/Diagnostics`，保留 7 天、总量 32 MiB；临时导出总量 20 MiB、24 小时淘汰。目录权限 0700，文件 0600。模拟默认关闭日志，使用独立临时目录；`CHERRY_DIAGNOSTIC_MODE=standard|detailed|profile|off` 可指定模式，`CHERRY_DIAGNOSTIC_DIR` 仅用于模拟测试。
+
+Release 性能工具使用模拟设备、真实 Core 服务和 KeyTestFeature reducer，顺序比较 noop/标准/Profile。运行示例：
+
+```bash
+python3 Scripts/run-diagnostic-profile.py --repetitions 1 --input-seconds 60 --idle-seconds 300
+```
+
+可加 `--official-updater /绝对路径/具名固件.exe`，只解析本地文件；不升级真实键盘。每次生成具名 `build/profile/<run>/`，包含源码/二进制摘要、构建身份、scenario.json、诊断包和汇总。`--repetitions 3` 轮换模式顺序用于复验。初始指标不能代替真实 HID、窗口绘制、网络/磁盘冷缓存和 Allocations 测量。
+
+[设计方案](Docs/OSLog日志与性能证据方案.md)、[实施与验证进度](Docs/日志实施进度.md)、[Profile 使用与证据](Docs/日志Profile验证.md) 记录契约、当前结果和下一步采集边界。网络接收端协议确定后再接入主动提交。
+
 ### 签名与「输入监控」权限
 
 按键测试需要读取键盘的 HID 报文，macOS 要求应用获得「输入监控」权限。默认使用 ad-hoc 签名，这种签名每次构建都会变，权限也就需要重新授予。
@@ -131,3 +149,7 @@ App/                  组合根：创建适配器，组装 Core 服务，通过 
 | 块内 `[0x35]` / `[0x36]` | 有线 / 无线回报率档位（该型号读到 0，对应频率未确认，所以只读展示） |
 
 写入范围限定在灯效、亮度、速度、颜色、休眠这几个字段，其余字节原样保留。工作模式（有线/无线）只能读取，切换要在键盘上操作，协议里没有找到对应的写命令。
+
+## 菜单栏性能验证
+
+菜单 / 信息页共享已验证的配置读回，编辑页保留本地草稿；快速灯效意图只保留一个待执行项，固件目录由适配器缓存 5 分钟。自动化与指标见 [菜单栏性能优化与验证](Docs/菜单栏性能优化与验证.md)，可使用 `Scripts/run-menu-profile.py` / `run-menu-idle.py` 对指定 Release 产品复测。模拟 UI 三次对比 CPU 权重降低 46.8%；hitch 尚缺有效帧数据，不能将空表认作不卡顿。

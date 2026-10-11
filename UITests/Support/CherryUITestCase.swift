@@ -12,10 +12,15 @@ class CherryUITestCase: XCTestCase {
     @discardableResult
     func launch(_ scenario: String? = "pixiu75") -> XCUIApplication {
         continueAfterFailure = false
-        let app = XCUIApplication()
+        let environment = ProcessInfo.processInfo.environment
+        let app = environment["CHERRY_PROFILE_APP"].map { XCUIApplication(url: URL(fileURLWithPath: $0)) } ?? XCUIApplication()
         if let scenario {
             app.launchEnvironment["CHERRY_SIMULATION"] = scenario
             app.launchEnvironment["CHERRY_PRESET_DIR"] = "/tmp/cherry-uitest-\(UUID().uuidString)"
+        }
+        if let output = environment["CHERRY_PROFILE_OUTPUT"] {
+            app.launchEnvironment["CHERRY_DIAGNOSTIC_MODE"] = "profile"
+            app.launchEnvironment["CHERRY_DIAGNOSTIC_DIR"] = output + "/journal"
         }
         app.launch()
         self.app = app

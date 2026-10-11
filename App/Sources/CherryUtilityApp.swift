@@ -13,6 +13,8 @@ struct CherryUtilityApp: App {
 
     init() {
         let root = CompositionRoot()
+        let runtime = root.diagnosticRuntime
+        AppDelegate.flushDiagnostics = { try? await runtime.flush() }
         simulation = root.simulation
         let store = Store(initialState: AppFeature.State()) {
             AppFeature()
@@ -33,6 +35,12 @@ struct CherryUtilityApp: App {
         .defaultSize(width: 1120, height: 800)
         .windowToolbarStyle(.unified)
         .commands { SimulationCommands(controls: simulation) }
+        .commands { DiagnosticsCommands() }
+
+        Window("诊断与日志", id: "diagnostics") {
+            DiagnosticsView(store: store.scope(state: \.diagnostics, action: \.diagnostics))
+        }
+        .defaultSize(width: 600, height: 560)
 
         MenuBarExtra {
             MenuBarContent(store: store.scope(state: \.menuBar, action: \.menuBar))
@@ -43,7 +51,21 @@ struct CherryUtilityApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static var flushDiagnostics: (@Sendable () async -> Void)?
+    private var terminationTask: Task<Void, Never>?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let flush = Self.flushDiagnostics else { return .terminateNow }
+        if terminationTask == nil {
+            terminationTask = Task { @MainActor in
+                await flush() // writer 等待有 2 秒上限，不能无限阻止退出。
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
+    }
     /// Closing the window keeps the status item (battery, quick lighting) alive.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
@@ -60,7 +82,8 @@ private struct MenuBarContent: View {
                 openWindow(id: CherryUtilityApp.mainWindowID)
                 NSApp.activate()
             },
-            onQuit: { NSApp.terminate(nil) }
+            onQuit: { NSApp.terminate(nil) },
+            onOpenDiagnostics: { openWindow(id: "diagnostics"); NSApp.activate() }
         )
     }
 }

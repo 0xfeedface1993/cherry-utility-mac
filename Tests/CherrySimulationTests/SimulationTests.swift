@@ -2,7 +2,7 @@ import CherryCore
 import Foundation
 import Synchronization
 import Testing
-@testable import CherryAdapters
+@testable import CherrySimulation
 
 /// The simulated keyboard must be protocol-faithful enough for the UI tests to exercise the real core services.
 @Suite("Simulated keyboard")

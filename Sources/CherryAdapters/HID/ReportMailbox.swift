@@ -8,7 +8,8 @@ import Synchronization
 /// Critical sections only copy state; continuations are resumed after the lock is released.
 /// Back-pressure: the device sends at most one report per request in both protocols; the buffer is
 /// bounded (`capacity`, oldest dropped) to cap memory if nobody is reading.
-final class ReportMailbox: Sendable {
+/// `package`：模拟键盘（CherrySimulation）复用同一个报文交接实现。
+package final class ReportMailbox: Sendable {
     typealias Waiter = CheckedContinuation<[UInt8]?, any Error>
 
     private struct State {
@@ -18,17 +19,17 @@ final class ReportMailbox: Sendable {
         var nextWaiterID: UInt64 = 0
     }
 
-    static let capacity = 256
+    package static let capacity = 256
     private let state = Mutex(State())
     private let diagnostics: Diagnostics
     private let context: TraceContext?
 
-    init(diagnostics: Diagnostics = .noop, context: TraceContext? = TraceContext.current) {
+    package init(diagnostics: Diagnostics = .noop, context: TraceContext? = TraceContext.current) {
         self.diagnostics = diagnostics; self.context = context
     }
 
     /// Producer side, called on the HID thread.
-    func push(_ report: [UInt8]) {
+    package func push(_ report: [UInt8]) {
         let result: (Waiter?, UInt64, UInt64) = state.withLock { s in
             guard !s.closed else { return (nil, 0, 0) }
             if let w = s.waiter {
@@ -44,7 +45,7 @@ final class ReportMailbox: Sendable {
         diagnostics.emit(.mailbox, context: context, metrics: .init(count: 1, dropped: result.1, peak: result.2))
     }
 
-    func close() {
+    package func close() {
         let waiter: Waiter? = state.withLock { s in
             s.closed = true
             s.buffer.removeAll()
@@ -54,14 +55,14 @@ final class ReportMailbox: Sendable {
         waiter?.resume(throwing: CherryError.disconnected)
     }
 
-    var isClosed: Bool { state.withLock { $0.closed } }
+    package var isClosed: Bool { state.withLock { $0.closed } }
 
-    func drain() {
+    package func drain() {
         state.withLock { $0.buffer.removeAll() }
     }
 
     /// Next report, nil on timeout, `CherryError.disconnected` once closed.
-    func next(timeout: Duration) async throws -> [UInt8]? {
+    package func next(timeout: Duration) async throws -> [UInt8]? {
         let span = diagnostics.begin(.mailbox, context: context)
         do {
             let result = try await nextImpl(timeout: timeout)

@@ -1,6 +1,7 @@
 import CherryAdapters
 import CherryCore
 import CherryFeatures
+import CherrySimulation
 import ComposableArchitecture
 import CryptoKit
 import Foundation

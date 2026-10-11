@@ -4,6 +4,7 @@ import PackageDescription
 // Hexagonal layout:
 //   CherryCore      – domain, protocol codecs, ports, application services (no UI, no IOKit, no TCA)
 //   CherryAdapters  – driven adapters: IOKit HID, URLSession catalog, on-disk firmware cache
+//   CherrySimulation – in-memory stand-ins for the driven adapters (UI tests, demo mode, profiling)
 //   CherryFeatures  – driving adapter: TCA reducers + SwiftUI views, talking to the core through dependency clients
 // The app target is the composition root that wires adapters into the feature clients.
 let package = Package(
@@ -13,6 +14,7 @@ let package = Package(
         .library(name: "CherryCore", targets: ["CherryCore"]),
         .library(name: "CherryAdapters", targets: ["CherryAdapters"]),
         .library(name: "CherryFeatures", targets: ["CherryFeatures"]),
+        .library(name: "CherrySimulation", targets: ["CherrySimulation"]),
         .executable(name: "CherryProfiler", targets: ["CherryProfiler"]),
     ],
     dependencies: [
@@ -21,7 +23,7 @@ let package = Package(
     targets: [
         .target(name: "CherryCore"),
         .executableTarget(name: "CherryProfiler", dependencies: [
-            "CherryCore", "CherryAdapters", "CherryFeatures",
+            "CherryCore", "CherryAdapters", "CherrySimulation", "CherryFeatures",
             .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
         ]),
         .target(
@@ -37,7 +39,9 @@ let package = Package(
             ]
         ),
         .testTarget(name: "CherryCoreTests", dependencies: ["CherryCore"]),
+        .target(name: "CherrySimulation", dependencies: ["CherryCore", "CherryAdapters"]),
         .testTarget(name: "CherryAdaptersTests", dependencies: ["CherryAdapters", "CherryCore"]),
+        .testTarget(name: "CherrySimulationTests", dependencies: ["CherrySimulation", "CherryAdapters", "CherryCore"]),
         .testTarget(
             name: "CherryFeaturesTests",
             dependencies: [

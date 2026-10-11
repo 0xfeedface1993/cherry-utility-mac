@@ -32,6 +32,13 @@ struct ArchitectureTests {
         }
     }
 
+    /// 生产适配器只含真实实现；模拟键盘与合成升级包在 CherrySimulation。
+    @Test func productionAdaptersHoldNoSimulation() throws {
+        for (name, text) in try Self.files("CherryAdapters") {
+            #expect(!Self.code(text).contains("Simulated") && !Self.code(text).contains("Synthetic"), "CherryAdapters/\(name) 含模拟实现")
+        }
+    }
+
     @Test func coreDependsOnlyOnSystemLibraries() throws {
         let allowed: Set<String> = ["Foundation", "CryptoKit", "Synchronization"]
         for (name, text) in try Self.files("CherryCore") {

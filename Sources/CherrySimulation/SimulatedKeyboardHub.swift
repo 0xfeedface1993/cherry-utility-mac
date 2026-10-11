@@ -1,3 +1,4 @@
+import CherryAdapters
 import CherryCore
 import Foundation
 import Synchronization

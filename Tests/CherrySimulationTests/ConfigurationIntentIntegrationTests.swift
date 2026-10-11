@@ -1,5 +1,5 @@
 import CherryCore
-import CherryAdapters
+import CherrySimulation
 import Synchronization
 import Testing
 

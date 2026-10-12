@@ -12,6 +12,9 @@ struct CherryUtilityApp: App {
     private let simulation: SimulationControls?
 
     init() {
+        // 不恢复上次的窗口：恢复数据与签名身份绑定，ad-hoc 构建（README 的默认方式）读不出任何窗口，
+        // 系统却仍报告“有状态可恢复”，SwiftUI 因此不打开主窗口。启动时总是打开主窗口，与正常退出后再启动一致。
+        UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])
         let root = CompositionRoot()
         let runtime = root.diagnosticRuntime
         simulation = root.simulation

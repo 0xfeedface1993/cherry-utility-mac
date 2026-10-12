@@ -54,13 +54,11 @@ final class PresetUITests: CherryUITestCase {
     func testDeletePresetAsksForConfirmation() {
         openConfiguration()
         savePreset(named: "临时")
-        element("preset.menu.临时").click()
-        app.menuItems["删除"].click()
+        choose("删除", fromMenu: "preset.menu.临时")
         alertButton("取消").click()
         XCTAssertTrue(element("preset.load.临时").exists)
 
-        element("preset.menu.临时").click()
-        app.menuItems["删除"].click()
+        choose("删除", fromMenu: "preset.menu.临时")
         alertButton("删除").click()
         wait(for: "preset.empty")
         XCTAssertFalse(element("preset.load.临时").exists)
@@ -77,8 +75,7 @@ final class PresetUITests: CherryUITestCase {
         open.buttons["取消"].firstMatch.exists ? open.buttons["取消"].firstMatch.click() : app.typeKey(.escape, modifierFlags: [])
         waitForDisappearance(open)
 
-        element("preset.menu.导出测试").click()
-        app.menuItems["导出…"].click()
+        choose("导出…", fromMenu: "preset.menu.导出测试")
         let save = app.sheets.firstMatch
         XCTAssertTrue(save.waitForExistence(timeout: 5), "导出应打开存储面板")
         save.buttons["取消"].firstMatch.exists ? save.buttons["取消"].firstMatch.click() : app.typeKey(.escape, modifierFlags: [])

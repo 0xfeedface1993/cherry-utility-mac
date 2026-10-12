@@ -133,6 +133,20 @@ class CherryUITestCase: XCTestCase {
         return candidates[0]
     }
 
+    /// Opens the pull-down menu `id` and picks `item`. A borderless SwiftUI `Menu` occasionally ignores a click that
+    /// arrives while its row is still being laid out (seen right after saving a preset), so the click is retried.
+    func choose(_ item: String, fromMenu id: String, file: StaticString = #filePath, line: UInt = #line) {
+        let button = element(id), entry = app.menuItems[item]
+        for _ in 0..<3 {
+            XCTAssertTrue(button.waitForExistence(timeout: 5), "没有菜单按钮 \(id)", file: file, line: line)
+            button.click()
+            if entry.waitForExistence(timeout: 2) { return entry.click() }
+            if app.menus.firstMatch.exists { app.typeKey(.escape, modifierFlags: []) }
+        }
+        attachAccessibilityTree()
+        XCTFail("菜单 \(id) 没有出现「\(item)」", file: file, line: line)
+    }
+
     func choose(menu: String, item: String) {
         let bar = app.menuBars.menuBarItems[menu]
         XCTAssertTrue(bar.waitForExistence(timeout: 5), "没有菜单 \(menu)")

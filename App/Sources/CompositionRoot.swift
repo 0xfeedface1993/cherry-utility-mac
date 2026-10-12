@@ -21,6 +21,8 @@ struct CompositionRoot {
     /// Set in simulation mode only.
     let simulation: SimulationControls?
     let diagnosticRuntime: DiagnosticsRuntime
+    /// Simulation only: where the diagnostic save panel opens, so UI tests never type into the system panel.
+    private let diagnosticSaveDirectory: URL?
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let support = URL.applicationSupportDirectory.appending(path: "CherryUtility", directoryHint: .isDirectory)
@@ -46,6 +48,7 @@ struct CompositionRoot {
             customDirectory = environment["CHERRY_CUSTOM_FIRMWARE_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
                 ?? FileManager.default.temporaryDirectory.appending(path: "CherryUtility-SimulationFirmware-\(UUID().uuidString)", directoryHint: .isDirectory)
             simulation = SimulationControls(hub: hub)
+            diagnosticSaveDirectory = environment["CHERRY_DIAGNOSTIC_SAVE_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         } else {
             let hid = IOKitHIDService(loop: HIDEventLoop(diagnostics: diagnostics))
             discovery = hid
@@ -59,6 +62,7 @@ struct CompositionRoot {
                 (customDirectory.appending(path: "Definitions", directoryHint: .isDirectory), .user),
             ], diagnostics: diagnostics)
             simulation = nil
+            diagnosticSaveDirectory = nil
         }
 
         services = CoreServices(
@@ -74,7 +78,7 @@ struct CompositionRoot {
     }
 
     func install(into dependencies: inout DependencyValues) {
-        DiagnosticsComposition.install(diagnosticRuntime, into: &dependencies)
+        DiagnosticsComposition.install(diagnosticRuntime, saveDirectory: diagnosticSaveDirectory, into: &dependencies)
         let discovery = discovery
         let keySource = keySource
         let access = access

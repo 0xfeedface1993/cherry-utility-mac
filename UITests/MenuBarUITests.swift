@@ -65,8 +65,7 @@ final class MenuBarUITests: CherryUITestCase {
         element("savebar.discard").click()
 
         openMenuBarPanel()
-        element("menubar.presets").click()
-        app.menuItems["曲线高亮"].click()
+        choose("曲线高亮", fromMenu: "menubar.presets")
         waitForText("menubar.summary", contains: "曲线 · 亮度 高")
     }
 

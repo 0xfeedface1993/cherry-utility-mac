@@ -23,14 +23,14 @@ enum DiagnosticsComposition {
         return runtime
     }
 
-    static func install(_ runtime: DiagnosticsRuntime, into dependencies: inout DependencyValues) {
+    static func install(_ runtime: DiagnosticsRuntime, saveDirectory: URL? = nil, into dependencies: inout DependencyValues) {
         dependencies.diagnostics = runtime.port
         dependencies.diagnosticsClient = DiagnosticsClient(
             status: { runtime.status },
             setMode: { runtime.setMode($0) },
             export: { try await runtime.export(range: $0) },
             save: { export in
-                guard let destination = await DiagnosticSavePanel.destination(for: export) else { return false }
+                guard let destination = await DiagnosticSavePanel.destination(for: export, in: saveDirectory) else { return false }
                 try Task.checkCancellation()
                 try await runtime.save(export, to: destination)
                 return true
@@ -40,8 +40,9 @@ enum DiagnosticsComposition {
 
 @MainActor
 private enum DiagnosticSavePanel {
-    static func destination(for export: DiagnosticExport) async -> URL? {
+    static func destination(for export: DiagnosticExport, in directory: URL?) async -> URL? {
         let panel = NSSavePanel()
+        if let directory { panel.directoryURL = directory }
         panel.title = "保存诊断包"
         panel.nameFieldStringValue = "CHERRY-诊断-\(Date().formatted(.iso8601.year().month().day())).cherrydiag.zip"
         panel.allowedContentTypes = [.zip]

@@ -98,6 +98,27 @@ import Testing
         #expect(cleaned.withLock { $0 })
     }
 
+    /// 调用方拿到结果时，onFinish 必须已经执行：否则紧接着的下一次快照 / 导出会误报 busy。
+    @Test func workerReleasesBeforeDeliveringResult() async throws {
+        let released = Mutex(false)
+        let queue = DispatchQueue(label: "diagnostic-worker-release-order")
+        for _ in 0..<10 {
+            released.withLock { $0 = false }
+            // 收尾稍慢时顺序问题必然暴露：结果先交付，调用方就会看到尚未释放的状态。
+            _ = try await DiagnosticWorker.run(on: queue, timeout: 5, onFinish: {
+                Thread.sleep(forTimeInterval: 0.002); released.withLock { $0 = true }
+            }) { _ in 1 }
+            #expect(released.withLock { $0 })
+        }
+    }
+
+    @Test func backToBackSnapshotsNeverReportBusy() async throws {
+        let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        let journal = DiagnosticJournal(directory: dir)
+        journal.append(event(.launch))
+        for _ in 0..<100 { _ = try await journal.snapshot(range: .currentRun) }
+    }
+
     @Test func policyExpiresUsingMonotonicClock() {
         let time = Mutex<UInt64>(0)
         let policy = DiagnosticPolicy(mode: .detailed, clock: .init(now: { time.withLock { $0 } }))

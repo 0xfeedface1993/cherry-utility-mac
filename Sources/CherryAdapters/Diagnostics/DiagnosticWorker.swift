@@ -46,8 +46,9 @@ enum DiagnosticWorker {
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: timer)
                 let token = TimerToken(item: timer)
                 queue.async {
-                    defer { token.cancel(); onFinish() }
                     let result = Result { try cancellation.check(); return try body(cancellation) }
+                    // 先释放 busy 等状态再交付结果：调用方拿到结果后立即发起的下一次请求不会误报忙。
+                    token.cancel(); onFinish()
                     reply.finish(result)
                 }
             }

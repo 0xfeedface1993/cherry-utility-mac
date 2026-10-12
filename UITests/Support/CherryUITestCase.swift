@@ -37,7 +37,9 @@ class CherryUITestCase: XCTestCase {
     }
 
     /// Label and value together, so assertions work for static texts, combined rows and controls alike.
+    /// Empty while the element does not exist, so `waitForText` keeps waiting instead of failing on the lookup.
     func text(of e: XCUIElement) -> String {
+        guard e.exists else { return "" }
         let value = e.value.map { "\($0)" } ?? ""
         return [e.label, value].filter { !$0.isEmpty }.joined(separator: " ")
     }
@@ -131,6 +133,20 @@ class CherryUITestCase: XCTestCase {
         }
         XCTFail("没有出现按钮「\(title)」的对话框", file: file, line: line)
         return candidates[0]
+    }
+
+    /// Types `string` into a text field and checks what arrived. XCUITest enters non-ASCII text through Unicode Hex Input,
+    /// whose keystrokes occasionally interleave under load (出 U+51FA arrived as U+551F), so a mismatch is cleared and retyped.
+    func type(_ string: String, into field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        for _ in 0..<3 {
+            field.click()
+            field.typeKey("a", modifierFlags: .command)
+            field.typeKey(.delete, modifierFlags: [])
+            field.typeText(string)
+            if field.value as? String == string { return }
+        }
+        attachAccessibilityTree()
+        XCTFail("输入框内容应为「\(string)」，实际「\(field.value ?? "")」", file: file, line: line)
     }
 
     /// Opens the pull-down menu `id` and picks `item`. A borderless SwiftUI `Menu` occasionally ignores a click that

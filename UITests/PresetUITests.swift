@@ -11,9 +11,7 @@ final class PresetUITests: CherryUITestCase {
     }
 
     private func savePreset(named name: String) {
-        let field = element("preset.name")
-        field.click()
-        field.typeText(name)
+        type(name, into: element("preset.name"))
         element("preset.save").click()
         waitForText("banner.success", contains: "已保存预设「\(name)」")
         wait(for: "preset.load.\(name)")

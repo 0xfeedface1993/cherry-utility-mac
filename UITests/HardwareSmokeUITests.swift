@@ -122,22 +122,83 @@ final class HardwareSmokeUITests: CherryUITestCase {
     /// UI-93 真机按键采集：需要有人在键盘上按键，另设 `TEST_RUNNER_CHERRY_UITEST_KEYPRESS=1`。
     /// 「按键测试」开始监听后 90 秒内，按任意 5 个不同的键（Fn 不计），再同时按住两个键后松开。
     func testRealKeyboardCapturesPhysicalKeys() throws {
-        try requireHardware()
-        try XCTSkipUnless(ProcessInfo.processInfo.environment["CHERRY_UITEST_KEYPRESS"] == "1", "未开启实体按键测试")
-        launch(nil)
-        waitForText("info.model", contains: "MX PIXIU 75", timeout: 15)
-        openSection("按键测试")
-        wait(for: "keytest.canvas")
-        waitForText("keytest.state", contains: "正在监听", timeout: 15)
-        func count(_ id: String) -> Int { Int(text(id).prefix { $0.isNumber }) ?? 0 }
-        waitUntil("应记录到 5 个不同的按键，实际「\(text("keytest.tested"))」", timeout: 90) { count("keytest.tested") >= 5 }
-        waitUntil("应记录到同时按下 2 个键", timeout: 60) { count("keytest.max") >= 2 }
-        waitUntil("松开后当前按下应为 0", timeout: 15) { count("keytest.pressed") == 0 }
-        XCTAssertGreaterThanOrEqual(count("keytest.events"), 2 * count("keytest.tested"), "每个键至少有按下和松开两个事件")
+        try requireOperator()
+        openRealKeyTest()
+        waitUntil("应记录到 5 个不同的按键，实际「\(text("keytest.tested"))」", timeout: 90) { number("keytest.tested") >= 5 }
+        waitUntil("应记录到同时按下 2 个键", timeout: 60) { number("keytest.max") >= 2 }
+        // 各项统计分几次查询读取；等停手后数字稳定再比较，避免边按边读造成前后不一致。
+        var stats = keyStats()
+        waitUntil("停手后统计应稳定且没有按住的键", timeout: 30) {
+            let previous = stats
+            RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+            stats = keyStats()
+            return stats == previous && stats.pressed == 0
+        }
+        XCTAssertGreaterThanOrEqual(stats.events, 2 * stats.tested, "每个键至少有按下和松开两个事件：\(stats)")
         XCTAssertFalse(element("keytest.error").exists)
     }
 
+    /// UI-94 真机 USB 拔插：需要有人操作，与 UI-93 共用 `TEST_RUNNER_CHERRY_UITEST_KEYPRESS=1`。
+    /// 菜单栏面板弹出后拔下 USB 线；面板自动关闭后插回同一个接口；再次「正在监听」后按任意一个字母键。
+    /// 面板在拔线前打开（打开面板后 XCUITest 要等数秒空闲），拔线的同时就能核对，不受插回快慢影响。
+    func testRealKeyboardSurvivesUnplugAndReplug() throws {
+        try requireOperator()
+        openSection("设备信息")
+        waitForText("info.crc", contains: "0x", timeout: 15)
+        let crc = text("info.crc")
+        openRealKeyTest()
+        openMenuBarPanel()
+
+        // 面板对人已可见时 XCUITest 可能仍在等空闲，拔线可能早于这里；只看拔线后的结果。
+        // 键盘若改走无线连接，面板会显示那个设备；有线的这一个不应再出现。
+        waitUntil("拔出后菜单栏应清空或不再显示有线设备", timeout: 120) {
+            let connection = self.element("menubar.connection")
+            return self.element("menubar.empty").exists || (connection.exists && !self.text(of: connection).contains("有线"))
+        }
+        waitForText("keytest.state", contains: "未监听", timeout: 10)
+        XCTAssertTrue(element("detail.disconnected").exists, "详情页应提示断开")
+        XCTAssertTrue(element("sidebar.disconnectedKeyboard").exists, "拔出的键盘应列在「已断开」")
+        closeMenuBarPanel()
+
+        waitForDisappearance(element("detail.disconnected"), timeout: 120)
+        app.activate()
+        waitForText("keytest.state", contains: "正在监听", timeout: 20)
+        let events = number("keytest.events")
+        waitUntil("插回后按键应被记录", timeout: 60) { number("keytest.events") > events }
+
+        openMenuBarPanel()
+        waitForText("menubar.device", contains: "PIXIU 75", timeout: 15)
+        waitForText("menubar.connection", contains: "有线", timeout: 15)
+        closeMenuBarPanel()
+        openSection("设备信息")
+        waitForText("info.connection", contains: "USB", timeout: 15)
+        waitForText("info.crc", contains: "0x", timeout: 15)
+        XCTAssertEqual(text("info.crc"), crc, "插回后重新读取的固件 CRC 应与拔出前一致")
+    }
+
     // MARK: Helpers
+
+    /// 需要有人在键盘旁操作的用例：启动真机 App 并等到读出型号。
+    private func requireOperator() throws {
+        try requireHardware()
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["CHERRY_UITEST_KEYPRESS"] == "1", "未开启需要人工操作的真机测试")
+        launch(nil)
+        waitForText("info.model", contains: "MX PIXIU 75", timeout: 15)
+    }
+
+    private func openRealKeyTest() {
+        app.activate() // 按键会同时输入到前台应用，确保前台是本 App。
+        openSection("按键测试")
+        wait(for: "keytest.canvas")
+        waitForText("keytest.state", contains: "正在监听", timeout: 15)
+    }
+
+    private func number(_ id: String) -> Int { Int(text(id).prefix { $0.isNumber }) ?? 0 }
+
+    private struct KeyStats: Equatable { var tested = 0, pressed = 0, events = 0 }
+    private func keyStats() -> KeyStats {
+        KeyStats(tested: number("keytest.tested"), pressed: number("keytest.pressed"), events: number("keytest.events"))
+    }
 
     private func edit(profile n: Int) {
         wait(for: "profile.card.\(n)", timeout: 15)
@@ -148,8 +209,7 @@ final class HardwareSmokeUITests: CherryUITestCase {
     private func savePreset(named name: String) {
         let field = element("preset.name")
         reveal(field)
-        field.click()
-        field.typeText(name)
+        type(name, into: field)
         element("preset.save").click()
         waitForText("banner.success", contains: "已保存预设「\(name)」")
         wait(for: "preset.load.\(name)")

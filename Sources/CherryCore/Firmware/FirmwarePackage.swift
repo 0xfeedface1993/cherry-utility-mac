@@ -33,6 +33,8 @@ public struct FirmwarePackage: Equatable, Sendable, Identifiable {
     public enum Source: Equatable, Sendable {
         case catalog(FirmwareRelease)
         case localFile(URL)
+        /// A patched image built from a saved custom-firmware variant.
+        case customBuild(variantID: UUID, name: String)
     }
 
     public let id: UUID
@@ -51,6 +53,7 @@ public struct FirmwarePackage: Equatable, Sendable, Identifiable {
         switch source {
         case .catalog(let r): r.name
         case .localFile(let url): url.lastPathComponent
+        case .customBuild(_, let name): name
         }
     }
 

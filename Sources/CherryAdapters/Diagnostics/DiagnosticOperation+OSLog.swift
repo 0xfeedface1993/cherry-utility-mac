@@ -13,7 +13,8 @@ extension DiagnosticOperation {
         case .firmwareStatus, .firmwareFlash, .firmwareParse, .firmwareMD5, .firmwareExtract, .firmwareCRC,
              .otaReports, .otaStart, .otaTransfer, .otaResult, .otaACK, .otaProgress, .reconnectionVerify, .reconnectionWait: "firmware"
         case .catalogFetch, .catalogDecode, .firmwareDownload: "network"
-        case .cacheRead, .cacheWrite, .presetIO: "storage"
+        case .cacheRead, .cacheWrite, .presetIO, .customFirmwareIO: "storage"
+        case .customFirmwareBuild: "firmware"
         case .keyCapture, .keyDecode, .keyDispatch, .keyPipeline, .keyStream: "keytest"
         case .modeChange, .export: "diagnostics"
         case .resultApplied, .resultIgnored, .refresh: "app"
@@ -64,6 +65,8 @@ extension DiagnosticOperation {
         case .cacheRead: "CacheRead"
         case .cacheWrite: "CacheWrite"
         case .presetIO: "PresetIO"
+        case .customFirmwareBuild: "CustomFirmwareBuild"
+        case .customFirmwareIO: "CustomFirmwareIO"
         case .keyCapture: "KeyCapture"
         case .keyDecode: "KeyDecode"
         case .keyDispatch: "KeyDispatch"

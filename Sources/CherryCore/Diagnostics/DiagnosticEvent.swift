@@ -10,6 +10,7 @@ public enum DiagnosticOperation: String, Codable, CaseIterable, Sendable {
     case firmwareFlash, firmwareParse, firmwareMD5, firmwareExtract, firmwareCRC, otaReports, otaStart, otaTransfer, otaResult
     case otaACK, otaProgress, reconnectionVerify, reconnectionWait
     case catalogFetch, catalogDecode, firmwareDownload, cacheRead, cacheWrite, presetIO
+    case customFirmwareBuild, customFirmwareIO
     case keyCapture, keyDecode, keyDispatch, keyPipeline, keyStream, resultApplied, resultIgnored, refresh
 
     public var isDetail: Bool {

@@ -103,6 +103,7 @@ public struct KeyboardFeature: Sendable {
         case configuration = "灯效与配置"
         case keyTest = "按键测试"
         case firmware = "固件升级"
+        case customFirmware = "自定义固件"
         public var id: String { rawValue }
     }
 
@@ -115,6 +116,7 @@ public struct KeyboardFeature: Sendable {
         public var configuration: ConfigurationFeature.State
         public var keyTest: KeyTestFeature.State
         public var firmware: FirmwareFeature.State
+        public var customFirmware: CustomFirmwareFeature.State
 
         public init(keyboard: KeyboardSummary) {
             self.keyboard = keyboard
@@ -122,9 +124,10 @@ public struct KeyboardFeature: Sendable {
             configuration = ConfigurationFeature.State(keyboard: keyboard)
             keyTest = KeyTestFeature.State(keyboard: keyboard)
             firmware = FirmwareFeature.State(keyboard: keyboard)
+            customFirmware = CustomFirmwareFeature.State(keyboard: keyboard)
         }
 
-        public var isBusy: Bool { firmware.isBusy || configuration.isBusy }
+        public var isBusy: Bool { firmware.isBusy || customFirmware.isBusy || configuration.isBusy }
     }
 
     public enum Action: BindableAction {
@@ -134,6 +137,7 @@ public struct KeyboardFeature: Sendable {
         case configuration(ConfigurationFeature.Action)
         case keyTest(KeyTestFeature.Action)
         case firmware(FirmwareFeature.Action)
+        case customFirmware(CustomFirmwareFeature.Action)
     }
 
     public init() {}
@@ -144,6 +148,7 @@ public struct KeyboardFeature: Sendable {
         Scope(state: \.configuration, action: \.configuration) { ConfigurationFeature() }
         Scope(state: \.keyTest, action: \.keyTest) { KeyTestFeature() }
         Scope(state: \.firmware, action: \.firmware) { FirmwareFeature() }
+        Scope(state: \.customFirmware, action: \.customFirmware) { CustomFirmwareFeature() }
         Reduce { state, action in
             switch action {
             case .keyboardUpdated(let keyboard):
@@ -153,9 +158,10 @@ public struct KeyboardFeature: Sendable {
                     .send(.info(.keyboardUpdated(keyboard))),
                     .send(.configuration(.keyboardUpdated(keyboard))),
                     .send(.keyTest(.keyboardUpdated(keyboard))),
-                    .send(.firmware(.keyboardUpdated(keyboard)))
+                    .send(.firmware(.keyboardUpdated(keyboard))),
+                    .send(.customFirmware(.keyboardUpdated(keyboard)))
                 )
-            case .binding, .info, .configuration, .keyTest, .firmware:
+            case .binding, .info, .configuration, .keyTest, .firmware, .customFirmware:
                 return .none
             }
         }

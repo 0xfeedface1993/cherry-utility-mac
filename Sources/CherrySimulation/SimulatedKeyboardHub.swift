@@ -20,6 +20,8 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
         public var charging = true
         public var wireless = false
         public var firmwareVersion: UInt16 = 0x0117
+        /// Image CRC the OTA channel reports before any flash.
+        public var firmwareCRC: UInt32 = SimulatedKeyboardHub.initialCRC
         /// How long the keyboard stays off the bus after a successful OTA.
         public var rebootDelay: Duration = .milliseconds(1200)
         /// Delay before each reply, so progress is observable in the UI.
@@ -27,7 +29,8 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
 
         public init() {}
 
-        /// `pixiu75` (default), `empty`, `unsupported`, `denied`, `wireless`.
+        /// `pixiu75` (default), `dual`, `slow`, `empty`, `unsupported`, `denied`, `wireless`, `customfw` (runs the synthetic
+        /// stock image that `SimulatedCustomFirmware` has a definition for).
         public static func named(_ name: String) -> Scenario {
             var s = Scenario()
             switch name {
@@ -40,6 +43,8 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
                 s.wireless = true
                 s.charging = false
                 s.batteryPercent = 15
+            case "customfw":
+                s.firmwareCRC = SimulatedCustomFirmware.stockCRC
             default: break
             }
             return s
@@ -104,7 +109,7 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
         state = Mutex(State(device: Device(
             attached: scenario.device != .none,
             releaseNumber: scenario.firmwareVersion,
-            crc: Self.initialCRC,
+            crc: scenario.firmwareCRC,
             config: Self.capturedConfigurationSpace(),
             battery: scenario.batteryPercent,
             charging: scenario.charging

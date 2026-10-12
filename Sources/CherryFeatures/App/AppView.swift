@@ -70,7 +70,7 @@ struct KeyboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !store.isConnected {
-                Label(store.firmware.isBusy ? "设备正在重启…" : "设备已断开，显示上次读取信息；重新连接后自动刷新", systemImage: "cable.connector.slash")
+                Label(store.firmware.isBusy || store.customFirmware.isBusy ? "设备正在重启…" : "设备已断开，显示上次读取信息；重新连接后自动刷新", systemImage: "cable.connector.slash")
                     .accessibilityIdentifier("detail.disconnected")
                     .frame(maxWidth: .infinity)
                     .padding(8)
@@ -85,6 +85,8 @@ struct KeyboardView: View {
                 KeyTestView(store: store.scope(state: \.keyTest, action: \.keyTest))
             case .firmware:
                 FirmwareView(store: store.scope(state: \.firmware, action: \.firmware))
+            case .customFirmware:
+                CustomFirmwareView(store: store.scope(state: \.customFirmware, action: \.customFirmware))
             }
         }
         .navigationTitle(store.keyboard.displayName)

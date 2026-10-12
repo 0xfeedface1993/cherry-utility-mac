@@ -176,7 +176,68 @@ final class HardwareSmokeUITests: CherryUITestCase {
         XCTAssertEqual(text("info.crc"), crc, "插回后重新读取的固件 CRC 应与拔出前一致")
     }
 
+    /// UI-95 真机官方固件刷写：会改写键盘固件，另设 `TEST_RUNNER_CHERRY_UITEST_FLASH=1`。
+    /// 从官方目录下载并校验升级包，刷写后等待重启，读回 CRC 与升级包一致。键盘原先若是修改过的同版本固件，这一步即恢复原厂。
+    func testRealKeyboardFlashesOfficialFirmware() throws {
+        try requireFlash()
+        let before = profileBlocks(name: "raw-before-official")
+        openSection("固件升级")
+        wait(for: "firmware.current", timeout: 15)
+        waitForText("firmware.latest", contains: "0.1.1", timeout: 30)
+        element("firmware.download").click()
+        waitForText("firmware.package.file", contains: "MX_PIXIU75_WIRELESS_", timeout: 120)
+        XCTAssertTrue(text("firmware.package.target").contains("PID 0x01E2"))
+        waitForText("firmware.package.deviceCRC", contains: "与升级包", timeout: 30)
+        note("device-before-official", text("firmware.package.deviceCRC"))
+        let flash = element("firmware.flash")
+        reveal(flash)
+        XCTAssertTrue(flash.isEnabled)
+        flash.click()
+        alertButton("开始升级").click()
+        waitForText("firmware.phase", contains: "升级完成，固件 CRC 与升级包一致", timeout: 240)
+        waitForText("firmware.package.deviceCRC", contains: "与升级包相同", timeout: 30)
+        note("device-after-official", text("firmware.phase"))
+        XCTAssertEqual(profileBlocks(name: "raw-after-official"), before, "刷写固件不应改动板载配置")
+    }
+
+    /// UI-96 真机自定义固件写入：会改写键盘固件，另设 `TEST_RUNNER_CHERRY_UITEST_FLASH=1`。
+    /// 键盘应识别为原厂 0117；写入已保存的「方案 1」后读回 CRC 一致，并识别为该方案。
+    func testRealKeyboardInstallsSavedVariant() throws {
+        try requireFlash()
+        let before = profileBlocks(name: "raw-before-variant")
+        openSection("自定义固件")
+        waitForText("custom.installed", contains: "原厂固件 0.1.1.7", timeout: 30)
+        note("installed-before-variant", text("custom.installed"))
+        element("custom.stock.fetch").click()
+        waitForText("custom.stock.status", contains: "已获取", timeout: 120)
+        waitForText("custom.variant.name", contains: "方案 1", timeout: 15)
+        waitForText("custom.summary", contains: "0x46F8C57A", timeout: 30)
+        let install = element("custom.install")
+        reveal(install)
+        XCTAssertTrue(install.isEnabled)
+        install.click()
+        alertButton("开始写入").click()
+        waitForText("custom.phase", contains: "键盘读回的 CRC 与写入镜像一致", timeout: 240)
+        waitForText("custom.installed", contains: "自定义方案「方案 1」", timeout: 30)
+        XCTAssertTrue(text("custom.installed").contains("0x46F8C57A"))
+        note("installed-after-variant", text("custom.installed"))
+        XCTAssertEqual(profileBlocks(name: "raw-after-variant"), before, "刷写固件不应改动板载配置")
+    }
+
     // MARK: Helpers
+
+    /// 会改写固件的用例：真机 + 单独的开关，平时运行真机用例不会刷写。
+    private func requireFlash() throws {
+        try requireHardware()
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["CHERRY_UITEST_FLASH"] == "1", "未开启会改写固件的真机测试")
+        launch(nil)
+        waitForText("info.model", contains: "MX PIXIU 75", timeout: 15)
+    }
+
+    private func note(_ name: String, _ value: String) {
+        let attachment = XCTAttachment(string: value)
+        attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+    }
 
     /// 需要有人在键盘旁操作的用例：启动真机 App 并等到读出型号。
     private func requireOperator() throws {

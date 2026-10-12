@@ -17,6 +17,7 @@ struct CompositionRoot {
     private let access: any InputMonitoringPort
     private let services: CoreServices
     private let presets: PresetLibrary
+    private let customFirmware: CustomFirmwareService
     /// Set in simulation mode only.
     let simulation: SimulationControls?
     let diagnosticRuntime: DiagnosticsRuntime
@@ -29,6 +30,8 @@ struct CompositionRoot {
         let catalog: any FirmwareCatalogPort & FirmwareDownloadPort
         let channelBase: any ReportChannelProvider
         var presetDirectory = support.appending(path: "Presets", directoryHint: .isDirectory)
+        let definitions: any FirmwareDefinitionSource
+        var customDirectory = support.appending(path: "CustomFirmware", directoryHint: .isDirectory)
 
         if let scenario = environment["CHERRY_SIMULATION"] {
             let hub = SimulatedKeyboardHub(scenario: .named(scenario), diagnostics: diagnostics)
@@ -36,9 +39,12 @@ struct CompositionRoot {
             keySource = hub
             access = hub
             channelBase = hub
-            catalog = SimulatedFirmwareCatalog()
+            catalog = SimulatedStockCatalog()
             presetDirectory = environment["CHERRY_PRESET_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
                 ?? FileManager.default.temporaryDirectory.appending(path: "CherryUtility-Simulation-\(UUID().uuidString)", directoryHint: .isDirectory)
+            definitions = SimulatedFirmwareDefinitions()
+            customDirectory = environment["CHERRY_CUSTOM_FIRMWARE_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+                ?? FileManager.default.temporaryDirectory.appending(path: "CherryUtility-SimulationFirmware-\(UUID().uuidString)", directoryHint: .isDirectory)
             simulation = SimulationControls(hub: hub)
         } else {
             let hid = IOKitHIDService(loop: HIDEventLoop(diagnostics: diagnostics))
@@ -47,6 +53,11 @@ struct CompositionRoot {
             access = InputMonitoringAccess(diagnostics: diagnostics)
             channelBase = hid
             catalog = CherryFirmwareCatalog(cacheDirectory: support.appending(path: "Firmware", directoryHint: .isDirectory), diagnostics: diagnostics)
+            // Bundled *.cherryfw sit flat in the app's Resources; files the user adds override them by ID.
+            definitions = DirectoryFirmwareDefinitionSource(directories: [
+                (Bundle.main.resourceURL ?? Bundle.main.bundleURL, .bundled),
+                (customDirectory.appending(path: "Definitions", directoryHint: .isDirectory), .user),
+            ], diagnostics: diagnostics)
             simulation = nil
         }
 
@@ -55,6 +66,11 @@ struct CompositionRoot {
             diagnostics: diagnostics
         )
         presets = PresetLibrary(store: FileProfilePresetStore(directory: presetDirectory, diagnostics: diagnostics))
+        customFirmware = services.customFirmware(
+            definitions: definitions,
+            variants: FileFirmwareVariantStore(directory: customDirectory.appending(path: "Variants", directoryHint: .isDirectory), diagnostics: diagnostics),
+            flashLog: FileFirmwareFlashLog(file: customDirectory.appending(path: "flash-history.json"), diagnostics: diagnostics)
+        )
     }
 
     func install(into dependencies: inout DependencyValues) {
@@ -111,6 +127,21 @@ struct CompositionRoot {
             deviceFirmware: { try await firmware.deviceFirmware(keyboard: $0, package: $1) },
             flash: { try await firmware.flash(keyboard: $0, package: $1, progress: $2) },
             verifyAfterFlash: { try await firmware.verifyAfterFlash(keyboard: $0, package: $1) }
+        )
+        let custom = customFirmware
+        dependencies.customFirmwareClient = CustomFirmwareClient(
+            loadDefinitions: { try await custom.loadDefinitions() },
+            stockPackage: { try await custom.stockPackage(for: $0) },
+            importStock: { definition, url in try custom.stockPackage(for: definition, localData: try await LocalFile.read(url), url: url) },
+            variants: { try await custom.variants() },
+            flashRecords: { try await custom.flashRecords() },
+            createVariant: { try await custom.createVariant(named: $0, for: $1, copying: $2) },
+            saveVariant: { try await custom.save($0, definition: $1, stock: $2) },
+            deleteVariant: { try await custom.deleteVariant(id: $0) },
+            prepareInstall: { try custom.prepareInstall($0, definition: $1, stock: $2) },
+            deviceFirmware: { try await inspector.firmwareStatus(of: $0) },
+            flash: { try await custom.flash($0, on: $1, progress: $2) },
+            verify: { try await custom.verify($0, on: $1) }
         )
     }
 }

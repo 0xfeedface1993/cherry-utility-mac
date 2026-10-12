@@ -17,6 +17,7 @@
   - 本地预设：把编辑区保存为预设，之后载入任意配置档，支持导入/导出 `.cherryprofile` 文件。
 - **按键测试**：在 PIXIU 75 的真实键位图上实时显示按键状态，包括旋钮。同时统计已测键数、同时按下的最大键数，以及事件间隔。
 - **固件升级**：从 Cherry 官方目录下载 Windows 升级包，校验 MD5 和 CRC，提取其中的 Telink 固件，直接通过 USB-HID 刷写。刷完后会读回 CRC 核对。
+- **自定义固件**：在已知的原厂固件上选择要修改的功能（例如固定 F 区行为、去掉 Ctrl+Fn 误触、改 Fn 组合键的功能），保存成多个方案，生成补丁镜像后写入键盘并读回验证。页面会识别键盘当前运行的是原厂固件、哪个方案，还是方案的早期版本。可修改的内容由 `.cherryfw` 定义文件描述，详见下文「自定义固件」。
 
 已适配并在真机验证的型号：**MX PIXIU 75**（VID 0x046A / PID 0x01E2）。其他 Cherry 设备只显示 USB 信息；如果它的升级包也是同一套 Telink USB_OTA 格式，理论上也能刷写。
 
@@ -44,7 +45,7 @@ cd Packages/CherryKit && swift test
 
 ### UI 测试与模拟模式
 
-`CherryUtilityUITests` 是 XCUITest 用例，覆盖启动导航、设备信息、灯效与配置、本地预设、菜单栏、按键测试、固件升级和热插拔，用例清单见 [Docs/UI测试用例.md](Docs/UI测试用例.md)。用例以环境变量 `CHERRY_SIMULATION=<场景>` 启动 App，场景有 `pixiu75`、`empty`、`unsupported`、`denied`、`wireless`。此时 App 连接的是内存里的模拟键盘：它实现了同样的 0xFF1C 私有协议和 Telink OTA 协议，支持热插拔和按键注入，所以不需要真键盘、输入监控权限或网络。模拟模式下菜单栏会多出「模拟设备」菜单，用于拔出和插入键盘。
+`CherryUtilityUITests` 是 XCUITest 用例，覆盖启动导航、设备信息、灯效与配置、本地预设、菜单栏、按键测试、固件升级和热插拔，用例清单见 [Docs/UI测试用例.md](Docs/UI测试用例.md)。用例以环境变量 `CHERRY_SIMULATION=<场景>` 启动 App，场景有 `pixiu75`、`dual`、`slow`、`empty`、`unsupported`、`denied`、`wireless`、`customfw`（键盘运行合成的 0117 原厂镜像，配一份模拟固件定义，用于自定义固件页）。此时 App 连接的是内存里的模拟键盘：它实现了同样的 0xFF1C 私有协议和 Telink OTA 协议，支持热插拔和按键注入，所以不需要真键盘、输入监控权限或网络。模拟模式下菜单栏会多出「模拟设备」菜单，用于拔出和插入键盘。
 
 ```bash
 xcodebuild -project CherryUtility.xcodeproj -scheme CherryUtility -skipMacroValidation test -only-testing:CherryUtilityUITests
@@ -109,19 +110,25 @@ Packages/CherryKit
 ├─ CherryCore        领域模型 · 协议编解码 · 端口(protocols) · 应用服务
 │   ├─ Domain        Keyboard / FirmwareVersion / BatteryStatus / ProfileConfig / KeyboardConfiguration
 │   │                ProfileSettings · ProfilePatch(只写改动字段) · ProfilePreset · LightingEffect 表
+│   │                CustomFirmware：FirmwareDefinition(定义文件解码与校验) · FirmwareVariant · FirmwareFlashRecord · InstalledFirmware(识别)
 │   ├─ Protocol      VendorPacket(0xFF1C 读/写/开始/结束) · TelinkOTAProtocol(0xFFEF) · HIDReportLayout
-│   ├─ Firmware      UpdaterImage(.NET 资源提取) · Checksums · FirmwarePackage
+│   ├─ Firmware      UpdaterImage(.NET 资源提取) · Checksums · FirmwarePackage · FirmwarePatcher(补丁与 CRC 重算)
 │   ├─ Ports         HIDReportChannel · KeyboardDiscoveryPort · KeyEventSource · FirmwareCatalogPort · ProfilePresetStore …
+│   │                FirmwareDefinitionSource · FirmwareVariantStore · FirmwareFlashLog
 │   ├─ Diagnostics   观测端口 Diagnostics · TraceContext / DiagnosticOrigin（来源只由驱动侧声明）· 事件词表
 │   └─ Services      VendorSession · KeyboardInspector · KeyboardConfigurator · KeyboardConfigurationWriter · PresetLibrary
 │                    FirmwareFlasher · FirmwareUpdateService · ExclusiveChannelProvider(按接口排队)
 │                    CoreServices（App 与 Profile 工具共用的服务装配）
+│                    CustomFirmwareService（经 CoreServices.customFirmware 构造，刷写与验证复用 FirmwareUpdateService）
 ├─ CherryAdapters    被驱动适配器：IOKit HID（专用 run-loop 线程）· URLSession 固件目录 + 磁盘缓存 · 预设 JSON 文件库
+│                    自定义固件：定义目录（内置 + 用户）· 方案 JSON 文件库 · 写入记录
 │                    诊断：OSLog / signpost、有界 journal、导出（策略统一由 DiagnosticPolicyConfiguration 给出）
-├─ CherrySimulation  模拟键盘与合成升级包（UI 测试、演示模式、Profile 工具），与生产适配器分开
+├─ CherrySimulation  模拟键盘与合成升级包（UI 测试、演示模式、Profile 工具），与生产适配器分开；模拟固件定义与带原厂条目的目录
 └─ CherryFeatures    驱动适配器：TCA Reducer + SwiftUI（依赖客户端只声明接口，不含 liveValue）
                      App · DeviceInfo · Configuration(草稿编辑 ProfileEditor) · MenuBar · KeyTest · Firmware
+                     CustomFirmware(方案草稿 VariantEditor，文案在 CustomFirmwarePresentation)
 App/                  组合根：创建适配器交给 CoreServices，通过 withDependencies 注入，不含业务逻辑；主窗口 + MenuBarExtra
+                      Resources/FirmwareDefinitions：内置的 .cherryfw 固件定义
 ```
 
 并发模型：
@@ -131,6 +138,21 @@ App/                  组合根：创建适配器交给 CoreServices，通过 wi
 - OTA 每发一个报文前都检查一次取消。
 - 菜单栏轮询、各页面刷新、固件读取共用一个设备。`ExclusiveChannelProvider` 按（键盘, UsagePage）先进先出排队，不会再报「接口被占用」。它用 `Mutex` 实现：等待者被取消时要在同步回调里原子地出队，锁内只改表，`resume` 都在锁外。
 - 写配置走 `0x01` 开始 → `0x06` 写入 → `0x02` 结束。`0x02` 即使中途出错或被取消也会尽力发出。写入是「读-改-写」：只发送改动字段对应的字节，写完读回校验。
+
+## 自定义固件
+
+- 入口：设备详情的「自定义固件」分段。需要用 USB 线有线连接，因为固件读取和写入都走 OTA 接口（UsagePage 0xFFEF）。
+- 流程：
+  1. 获取原厂镜像：从官方目录下载升级包（校验 MD5），或选择本地升级包。两种方式都会核对原厂镜像的 CRC，并逐处核对补丁位置的原始字节。
+  2. 新建或复制方案，按分组选择功能。修改先进入草稿，保存后才计算镜像 CRC。
+  3. 写入所选方案，或恢复原厂固件。写入走与「固件升级」相同的 OTA 路径，键盘重启后读回 CRC，与生成的镜像一致才算成功，并记入写入记录。
+- 识别：设备 CRC 依次与各定义的原厂 CRC、各方案当前构建的 CRC、写入记录比对，分别显示为原厂固件、某个方案、方案的早期版本或未知固件。
+- 存储位置（`~/Library/Application Support/CherryUtility/CustomFirmware/`）：
+  - `Variants/*.cherryfirmware`：方案，每个方案一个 JSON 文件。
+  - `flash-history.json`：写入记录，最多保留 200 条。
+  - `Definitions/*.cherryfw`：用户添加的固件定义，ID 相同时覆盖内置定义。
+- 定义文件：一个 JSON 描述一个原厂镜像，以及它可修改的选项。选项可以是带显式补丁的开关或多选，也可以是引用调色板的「功能槽」。加载时会校验偏移、长度、十六进制格式、重叠和保护区（镜像头和 CRC）。新增固件版本或新功能只需新增或修改定义文件。格式、PIXIU 75 0117 的固件知识和验证记录见 [Docs/自定义固件.md](Docs/自定义固件.md)。
+- 内置定义 `MX_PIXIU75_WIRELESS_0117.cherryfw` 的所有补丁位置都已与官方 0117 镜像逐字节核对。其中「F 区固定」加「去掉 Ctrl+Fn」两项一起生成的镜像（CRC 0x46F8C57A）已在真机写入并读回；各项功能的行为仍标为实验性。
 
 ## 协议备忘（逆向自 CHERRY Utility 2.3.28.7 与 MX_PIXIU75_WIRELESS_0117.exe）
 

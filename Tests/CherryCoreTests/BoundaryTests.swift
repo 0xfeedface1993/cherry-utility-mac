@@ -4,15 +4,21 @@ import Testing
 
 @Suite("协议与升级边界")
 struct BoundaryTests {
-    @Test func cancellationBeforeStartSendsNothing() async throws {
+    @Test(arguments: Observation.allCases)
+    func cancellationBeforeStartSendsNothing(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let image = try TestFirmware.updaterImage(size: 320)
         let channel = SimulatedChannel(inputReportIDs: [5]) { .reports([$0]) }
         let task = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            return try await FirmwareFlasher(channel: channel, reportID: 5).flash(image) { _ in }
+            return try await FirmwareFlasher(channel: channel, reportID: 5, diagnostics: recorder.port).flash(image) { _ in }
         }
         await #expect(throws: CancellationError.self) { try await task.value }
         #expect(channel.sentCount == 0)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(!recorder.finished(.otaTransfer).contains { $0.outcome != .cancelled })
+        }
     }
 
     @Test func truncatedKeyReportsDoNotReleaseHeldKeys() {

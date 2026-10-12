@@ -91,13 +91,20 @@ struct ServiceBranchTests {
         }
     }
 
-    @Test func missingOTAInterfacePreventsOpeningOrFlashing() async throws {
+    @Test(arguments: Observation.allCases)
+    func missingOTAInterfacePreventsOpeningOrFlashing(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let keyboard = KeyboardSummary(id: Self.keyboard.id, product: "PIXIU 75", manufacturer: "CHERRY", serialNumber: nil, transport: "USB", releaseNumber: 0x0117, interfaces: [])
         let ports = ServicePorts(channels: [])
         let package = try Self.package()
         #expect(FirmwareUpdateService.incompatibilities(of: package, with: keyboard).count == 1)
-        await #expect(throws: CherryError.self) { try await Self.service(ports).flash(keyboard: keyboard, package: package) { _ in } }
+        await #expect(throws: CherryError.self) { try await Self.service(ports, recorder).flash(keyboard: keyboard, package: package) { _ in } }
         #expect(ports.opens == 0)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.firmwareFlash).map(\.failure) == [.incompatibleFirmware])
+            #expect(recorder.finished(.channelOpen).isEmpty)
+        }
     }
 
     @Test(arguments: Observation.allCases)
@@ -142,18 +149,21 @@ struct ServiceBranchTests {
         }
     }
 
-    @Test func downloadValidatesHashAndExtractsSyntheticUpdater() async throws {
+    @Test(arguments: Observation.allCases)
+    func downloadValidatesHashAndExtractsSyntheticUpdater(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let data = Data(ResourceFixture.stream(name: "param_128K", value: TestFirmware.param()) + ResourceFixture.stream(name: "code_2M", value: TestFirmware.code(firmware: TestFirmware.make(size: 320))))
         let md5 = Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let release = FirmwareRelease(name: "MX_PIXIU75_WIRELESS_0120", deviceIndex: 60, versionCode: "0120", versionName: "0.1.2.0", downloadURL: URL(string: "https://example.invalid/test.exe")!, md5: md5, isForced: false)
         let ports = ServicePorts(channels: [], entries: [release], data: data)
-        #expect(try await Self.service(ports).latestRelease(for: .pixiu75) == release)
-        let package = try await Self.service(ports).download(release)
+        #expect(try await Self.service(ports, recorder).latestRelease(for: .pixiu75) == release)
+        let package = try await Self.service(ports, recorder).download(release)
         #expect(package.source == .catalog(release))
         #expect(package.fileMD5 == md5.uppercased())
         try package.image.validate()
-        await #expect(throws: CherryError.self) { try await Self.service(ServicePorts(channels: [])).download(release) }
+        await #expect(throws: CherryError.self) { try await Self.service(ServicePorts(channels: []), recorder).download(release) }
         #expect(FirmwareUpdateService.latestRelease(for: .pixiu75, in: []) == nil)
+        recorder.expectClosedSpans()
     }
 
     @Test(arguments: Observation.allCases)
@@ -174,14 +184,19 @@ struct ServiceBranchTests {
         }
     }
 
-    @Test func versionQuerySkipsNoiseAndTimesOutWithoutValidVersion() async throws {
+    @Test(arguments: Observation.allCases)
+    func versionQuerySkipsNoiseAndTimesOutWithoutValidVersion(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let channel = SimulatedChannel(inputReportIDs: [5]) { _ in .reports([[1], [5, 2, 0, 0]]) }
-        await #expect(throws: CherryError.self) { try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: Self.fast).readFirmwareStatus() }
+        await #expect(throws: CherryError.self) {
+            try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: Self.fast, diagnostics: recorder.port).readFirmwareStatus()
+        }
         let device = SimulatedOTADevice()
         let good = SimulatedChannel(inputReportIDs: [5]) { r in
             guard case .reports(let replies) = device.respond(r) else { return .disconnect }
             return .reports([[5, 2, 0, 0]] + replies)
         }
-        #expect(try await FirmwareFlasher(channel: good, reportID: 5).readFirmwareStatus().crc == 0x1234_5678)
+        #expect(try await FirmwareFlasher(channel: good, reportID: 5, diagnostics: recorder.port).readFirmwareStatus().crc == 0x1234_5678)
+        recorder.expectClosedSpans()
     }
 }

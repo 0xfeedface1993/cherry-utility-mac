@@ -1,6 +1,7 @@
 import CherryCore
 import CryptoKit
 import Foundation
+import os
 import Synchronization
 
 public final class DiagnosticExporter: Sendable {
@@ -135,7 +136,23 @@ public final class DiagnosticExporter: Sendable {
 
     public func save(_ export: DiagnosticExport, to destination: URL) async throws {
         guard export.url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL,
-              export.url.lastPathComponent == "CHERRY-\(export.id.uuidString).cherrydiag.zip" else { throw DiagnosticExportError.storage }
+              export.url.lastPathComponent == "CHERRY-\(export.id.uuidString).cherrydiag.zip" else {
+            Self.log.error("另存诊断包被拒绝：临时包不在导出目录")
+            throw DiagnosticExportError.storage
+        }
+        do { try await copy(export, to: destination) } catch {
+            // 界面只显示归类后的错误；文件系统的 domain / code 留在系统日志里，路径不公开。
+            if !(error is DiagnosticExportError), !(error is CancellationError) {
+                let e = error as NSError
+                Self.log.error("另存诊断包失败：\(e.domain, privacy: .public) \(e.code, privacy: .public) \(e.localizedDescription, privacy: .private)")
+            }
+            throw error
+        }
+    }
+
+    private static let log = Logger(subsystem: OSLogDiagnostics.subsystem, category: DiagnosticOperation.export.category)
+
+    private func copy(_ export: DiagnosticExport, to destination: URL) async throws {
         try await DiagnosticWorker.run(on: queue, timeout: configuration.exportTimeout) { cancellation in
             try cancellation.check()
             let temporary = destination.deletingLastPathComponent().appendingPathComponent(".cherry-save-\(UUID().uuidString)")

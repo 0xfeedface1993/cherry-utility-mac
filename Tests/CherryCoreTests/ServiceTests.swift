@@ -151,14 +151,19 @@ struct FirmwareFlasherTests {
         }
     }
 
-    @Test func readsFirmwareStatus() async throws {
+    @Test(arguments: Observation.allCases)
+    func readsFirmwareStatus(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let device = SimulatedOTADevice(currentCRC: 0xCFE1_A03E)
         let channel = SimulatedChannel(inputReportIDs: [5], respond: device.respond)
-        let status = try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast).readFirmwareStatus()
+        let status = try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast, diagnostics: recorder.port).readFirmwareStatus()
         #expect(status.crc == 0xCFE1_A03E)
+        recorder.expectClosedSpans()
     }
 
-    @Test func reportsDeviceSideFailure() async throws {
+    @Test(arguments: Observation.allCases)
+    func reportsDeviceSideFailure(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let image = try TestFirmware.updaterImage(size: 640)
         // Corrupt every CRC-16 so the device rejects the image at the end.
         let device = SimulatedOTADevice()
@@ -168,7 +173,12 @@ struct FirmwareFlasherTests {
             return device.respond(r)
         }
         await #expect(throws: CherryError.otaFailed(status: 1)) {
-            try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast).flash(image) { _ in }
+            try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast, diagnostics: recorder.port).flash(image) { _ in }
+        }
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.otaTransfer).map(\.failure) == [.otaFailed])
+            #expect(recorder.finished(.otaResult).map(\.outcome) == [.failed])
         }
     }
 
@@ -186,16 +196,25 @@ struct FirmwareFlasherTests {
         }
     }
 
-    @Test func timesOutWhenDeviceIgnoresStart() async throws {
+    @Test(arguments: Observation.allCases)
+    func timesOutWhenDeviceIgnoresStart(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let image = try TestFirmware.updaterImage(size: 640)
         let channel = SimulatedChannel(inputReportIDs: [5]) { _ in .reports([]) }
         await #expect(throws: CherryError.self) {
-            try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast).flash(image) { _ in }
+            try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast, diagnostics: recorder.port).flash(image) { _ in }
         }
         #expect(channel.sentCount == 1)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.otaStart).map(\.outcome) == [.timeout])
+            #expect(recorder.finished(.otaTransfer).map(\.outcome) == [.timeout])
+        }
     }
 
-    @Test func ignoresReportsFromOtherCollections() async throws {
+    @Test(arguments: Observation.allCases)
+    func ignoresReportsFromOtherCollections(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let image = try TestFirmware.updaterImage(size: 640)
         let device = SimulatedOTADevice()
         let channel = SimulatedChannel(inputReportIDs: [5]) { report in
@@ -203,8 +222,13 @@ struct FirmwareFlasherTests {
             guard case .reports(let replies) = device.respond(report) else { return .disconnect }
             return .reports([[1, 0, 0x04, 0, 0, 0, 0, 0]] + replies)
         }
-        let outcome = try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast).flash(image) { _ in }
+        let outcome = try await FirmwareFlasher(channel: channel, reportID: 5, timeouts: fast, diagnostics: recorder.port).flash(image) { _ in }
         #expect(outcome == .confirmed)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.otaResult).map(\.outcome) == [.success])
+            #expect(!recorder.finished(.otaACK).contains { $0.outcome != .success }, "杂报文不应被当成 ACK，也不应造成超时")
+        }
     }
 
     @Test(arguments: Observation.allCases)
@@ -249,9 +273,11 @@ struct VendorSessionTests {
         return .reports([[1, 0, 0x04, 0, 0, 0, 0, 0], Array(request[0..<7]) + [0x00] + payload + [UInt8](repeating: 0, count: 56 - length)])
     }
 
-    @Test func readsSnapshotAcrossChunksSkippingStrayReports() async throws {
+    @Test(arguments: Observation.allCases)
+    func readsSnapshotAcrossChunksSkippingStrayReports(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let channel = SimulatedChannel(inputReportIDs: [4], respond: Self.device)
-        let snapshot = try await VendorSession(channel: channel, reportID: 4).snapshot()
+        let snapshot = try await VendorSession(channel: channel, reportID: 4, diagnostics: recorder.port).snapshot()
         #expect(snapshot.battery.percent == 87)
         #expect(snapshot.status.mode == .wired)
         #expect(snapshot.profile.profile == 1)
@@ -261,12 +287,23 @@ struct VendorSessionTests {
         #expect(snapshot.profile.keyLocks == [.win, .altTab])
         // battery + status + profile number + 64-byte block in two chunks
         #expect(channel.sentCount == 5)
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.vendorExchange).map(\.outcome) == Array(repeating: .success, count: 5))
+        }
     }
 
-    @Test func surfacesDeviceRejection() async throws {
+    @Test(arguments: Observation.allCases)
+    func surfacesDeviceRejection(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let channel = SimulatedChannel(inputReportIDs: [4], respond: Self.device)
         await #expect(throws: CherryError.deviceRejected(command: 0x07, status: 0xFF)) {
-            try await VendorSession(channel: channel, reportID: 4).read(.readKeymap, length: 8)
+            try await VendorSession(channel: channel, reportID: 4, diagnostics: recorder.port).read(.readKeymap, length: 8)
+        }
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            // vendorExchange 只计量传输：回复已收到即成功；拒绝在解析回复时抛出，由调用方的 span 记录。
+            #expect(recorder.finished(.vendorExchange).map(\.outcome) == [.success])
         }
     }
 }

@@ -241,10 +241,11 @@ struct CustomFirmwareServiceTests {
 
     static func service(
         _ ports: ServicePorts, docs: [FirmwareDefinitionDocument] = [.init(origin: .bundled, name: "t.cherryfw", data: F.json())],
-        store: MemoryVariantStore = MemoryVariantStore(), log: MemoryFlashLog = MemoryFlashLog()
+        store: MemoryVariantStore = MemoryVariantStore(), log: MemoryFlashLog = MemoryFlashLog(),
+        recorder: DiagnosticRecorder = DiagnosticRecorder(.off)
     ) -> CustomFirmwareService {
         let tick = Mutex(0.0)
-        return CustomFirmwareService(firmware: ServiceBranchTests.service(ports), definitions: MemoryDefinitionSource(docs),
+        return CustomFirmwareService(firmware: ServiceBranchTests.service(ports, recorder), definitions: MemoryDefinitionSource(docs),
                                      variants: store, flashLog: log, now: { tick.withLock { t in defer { t += 1 }; return date.addingTimeInterval(t) } })
     }
 
@@ -320,12 +321,14 @@ struct CustomFirmwareServiceTests {
         }
     }
 
-    @Test func flashesVerifiesAndRecordsAVariant() async throws {
+    @Test(arguments: Observation.allCases)
+    func flashesVerifiesAndRecordsAVariant(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let store = MemoryVariantStore(), log = MemoryFlashLog()
         let stock = try Self.stock()
         var variant = FirmwareVariant(name: "A", definitionID: "test-def", selections: ["fix": "on"], createdAt: Self.date)
         try await store.save(variant)
-        let probe = Self.service(ServicePorts(channels: []), store: store, log: log)
+        let probe = Self.service(ServicePorts(channels: []), store: store, log: log, recorder: recorder)
         let install = try probe.install(variant: variant, definition: F.definition, stock: stock)
         #expect(install.package.source == .customBuild(variantID: variant.id, name: "A"))
         #expect(install.package.image.firmware != stock.image.firmware)
@@ -334,7 +337,7 @@ struct CustomFirmwareServiceTests {
         let device = SimulatedOTADevice(currentCRC: install.expectedCRC)
         let ports = ServicePorts(channels: [SimulatedChannel(inputReportIDs: [5], respond: device.respond), SimulatedChannel(inputReportIDs: [5], respond: device.respond)],
                                  lists: [[ServiceBranchTests.keyboard]])
-        let service = Self.service(ports, store: store, log: log)
+        let service = Self.service(ports, store: store, log: log, recorder: recorder)
         #expect(try await service.flash(install, on: ServiceBranchTests.keyboard) { _ in } == .confirmed)
         let reassembled = device.memory.withLock { Array($0.image[0 ..< install.package.image.firmware.count]) }
         #expect(reassembled == install.package.image.firmware)
@@ -345,9 +348,17 @@ struct CustomFirmwareServiceTests {
         #expect(records.count == 1 && records[0].variantID == variant.id && records[0].crc == install.expectedCRC && records[0].selections == ["fix": "on"])
         variant.builtCRC = install.expectedCRC
         #expect(try await store.variants() == [variant])
+        recorder.expectClosedSpans()
+        if observation == .recording {
+            #expect(recorder.finished(.customFirmwareBuild).map(\.outcome) == [.success])
+            #expect(recorder.finished(.firmwareFlash).map(\.outcome) == [.success])
+            #expect(recorder.finished(.reconnectionVerify).map(\.outcome) == [.success])
+        }
     }
 
-    @Test func wrongImageAfterRebootIsNotRecorded() async throws {
+    @Test(arguments: Observation.allCases)
+    func wrongImageAfterRebootIsNotRecorded(_ observation: Observation) async throws {
+        let recorder = DiagnosticRecorder(observation)
         let log = MemoryFlashLog()
         let stock = try Self.stock()
         let probe = Self.service(ServicePorts(channels: []), log: log)
@@ -357,14 +368,15 @@ struct CustomFirmwareServiceTests {
         let device = SimulatedOTADevice(currentCRC: 0x0BAD_F00D)
         let ports = ServicePorts(channels: [SimulatedChannel(inputReportIDs: [5], respond: device.respond)], lists: [[ServiceBranchTests.keyboard]])
         await #expect(throws: CustomFirmwareError.verificationMismatch(expectedCRC: F.stock.embeddedCRC, actualCRC: 0x0BAD_F00D)) {
-            try await Self.service(ports, log: log).verify(install, on: ServiceBranchTests.keyboard.id, pollInterval: .milliseconds(1))
+            try await Self.service(ports, log: log, recorder: recorder).verify(install, on: ServiceBranchTests.keyboard.id, pollInterval: .milliseconds(1))
         }
         #expect(try await log.records().isEmpty)
 
         let good = SimulatedOTADevice(currentCRC: F.stock.embeddedCRC)
         let goodPorts = ServicePorts(channels: [SimulatedChannel(inputReportIDs: [5], respond: good.respond)], lists: [[ServiceBranchTests.keyboard]])
-        _ = try await Self.service(goodPorts, log: log).verify(install, on: ServiceBranchTests.keyboard.id, pollInterval: .milliseconds(1))
+        _ = try await Self.service(goodPorts, log: log, recorder: recorder).verify(install, on: ServiceBranchTests.keyboard.id, pollInterval: .milliseconds(1))
         #expect(try await log.records().map(\.variantID) == [nil])
+        recorder.expectClosedSpans()
     }
 
     @Test func buildRefusesForeignVariantsAndUnknownChoices() throws {

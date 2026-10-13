@@ -4,6 +4,23 @@
   "minimumSystemVersion": "15.0",
   "releases": [
     {
+      "version": "1.0.1",
+      "notes": [
+        "安装盘加入安装引导背景：把 CHERRY Utility 拖到「应用程序」即可完成安装。",
+        "应用内更新的对话框和「上次检查」时间改为中文显示。",
+        "提示信息改为整句朗读，VoiceOver 下更易理解。"
+      ],
+      "build": 2,
+      "date": "2026-10-14",
+      "published": "2026-10-13T16:48:07+00:00",
+      "dmg": "CherryUtility-1.0.1.dmg",
+      "length": 9401954,
+      "sha256": "10df1ecdf13af78bbc7bebfba408621b67b37d4cf55956284525772df278440d",
+      "edSignature": "nB1g0zk3TtIQQhJrvVDikbA7iZrXVQy2ZQwcriIe32O7lnf6TKOM17tXo/eJITueMhR3wb4yD2mLMCz04zbiBA==",
+      "minimumSystemVersion": "15.0",
+      "notarized": true
+    },
+    {
       "version": "1.0.0",
       "build": 1,
       "date": "2026-10-13",

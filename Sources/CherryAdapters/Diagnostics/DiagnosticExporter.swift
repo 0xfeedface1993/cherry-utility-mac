@@ -11,7 +11,7 @@ public final class DiagnosticExporter: Sendable {
     private let directory: URL
     private let configuration: DiagnosticPolicyConfiguration
     private let wallClock: @Sendable () -> Date
-    private let queue = DispatchQueue(label: "dev.local.cherry.utility.diagnostic-export", qos: .utility)
+    private let queue = DispatchQueue(label: "online.odeployer.CherryUtility.diagnostic-export", qos: .utility)
     private let active = Mutex(false)
     private let packaging = Mutex(false)
 

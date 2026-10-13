@@ -49,7 +49,7 @@ struct SystemLogSnapshot: Sendable {
 }
 
 final class OSLogSnapshotReader: Sendable {
-    private let queue = DispatchQueue(label: "dev.local.cherry.utility.system-log", qos: .utility)
+    private let queue = DispatchQueue(label: "online.odeployer.CherryUtility.system-log", qos: .utility)
     private let busy = Mutex(false)
 
     func read(since: Date, runID: UUID, cutoff: UInt64) async -> SystemLogSnapshot {

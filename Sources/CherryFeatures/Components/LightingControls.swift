@@ -83,33 +83,35 @@ struct EffectGrid: View {
     let onSelect: @MainActor (UInt8) -> Void
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: columns), spacing: 6) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: compact ? 6 : 8), count: columns), spacing: compact ? 6 : 8) {
             ForEach(options) { option in
                 Button {
                     onSelect(option.id)
                 } label: {
-                    VStack(spacing: compact ? 2 : 4) {
+                    VStack(spacing: compact ? 3 : 6) {
                         Image(systemName: option.symbol)
                             .font(compact ? .body : .title3)
-                            .frame(height: compact ? 18 : 24)
+                            .frame(height: compact ? 18 : 22)
+                            .foregroundStyle(option.isSelected ? Theme.accentText : .secondary)
                         Text(option.name)
                             .font(compact ? .caption2 : .caption)
+                            .fontWeight(option.isSelected ? .semibold : .regular)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, compact ? 5 : 8)
+                    .frame(height: compact ? 48 : 62)
                     .background(
-                        RoundedRectangle(cornerRadius: 7)
-                            .fill(option.isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.06))
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(option.isSelected ? Theme.accentSubtle : Theme.inset)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 7)
-                            .strokeBorder(option.isSelected ? Color.accentColor : .clear, lineWidth: 1.5)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(option.isSelected ? Theme.accent : .clear, lineWidth: 1.5)
                     )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(option.isSelected ? Color.accentColor : .primary)
+                .foregroundStyle(option.isSelected ? Theme.accentText : .primary)
                 .accessibilityLabel(option.name)
                 .accessibilityValue(option.isSelected ? "已选中" : "")
                 .accessibilityAddTraits(option.isSelected ? .isSelected : [])
@@ -169,16 +171,19 @@ struct ColorChooser: View {
     let onColor: @MainActor (LEDColor) -> Void
     let onRandom: @MainActor (Bool) -> Void
 
+    /// The menu-bar panel (no system picker) is narrower: smaller swatches.
+    private var swatchSize: CGFloat { showsPicker ? 22 : 18 }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+            HStack(spacing: showsPicker ? 8 : 6) {
                 Button {
                     onRandom(true)
                 } label: {
                     Circle()
                         .fill(AngularGradient(colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red], center: .center))
-                        .frame(width: 20, height: 20)
-                        .overlay(Circle().strokeBorder(randomColor ? Color.primary : .clear, lineWidth: 2).padding(-3))
+                        .frame(width: swatchSize, height: swatchSize)
+                        .overlay(Circle().strokeBorder(randomColor ? Color.primary : .clear, lineWidth: 2).padding(-3.5))
                 }
                 .buttonStyle(.plain)
                 .help("随机颜色")
@@ -192,9 +197,9 @@ struct ColorChooser: View {
                     } label: {
                         Circle()
                             .fill(swatch.swiftUIColor)
-                            .frame(width: 20, height: 20)
+                            .frame(width: swatchSize, height: swatchSize)
                             .overlay(Circle().strokeBorder(Color.primary.opacity(0.15)))
-                            .overlay(Circle().strokeBorder(!randomColor && swatch == color ? Color.primary : .clear, lineWidth: 2).padding(-3))
+                            .overlay(Circle().strokeBorder(!randomColor && swatch == color ? Color.primary : .clear, lineWidth: 2).padding(-3.5))
                     }
                     .buttonStyle(.plain)
                     .help(swatch.description)

@@ -10,6 +10,7 @@ public struct AppFeature: Sendable {
         public var detail: KeyboardFeature.State?
         public var menuBar = MenuBarFeature.State()
         public var diagnostics = DiagnosticsFeature.State()
+        public var settings = SettingsFeature.State()
         /// `task` is sent both at launch (for the menu bar) and by the main window; only the first one starts work.
         public var hasStarted = false
 
@@ -25,6 +26,7 @@ public struct AppFeature: Sendable {
         case detail(KeyboardFeature.Action)
         case menuBar(MenuBarFeature.Action)
         case diagnostics(DiagnosticsFeature.Action)
+        case settings(SettingsFeature.Action)
     }
 
     @Dependency(\.keyboardClient) var keyboardClient
@@ -34,6 +36,7 @@ public struct AppFeature: Sendable {
     public var body: some ReducerOf<Self> {
         Scope(state: \.menuBar, action: \.menuBar) { MenuBarFeature() }
         Scope(state: \.diagnostics, action: \.diagnostics) { DiagnosticsFeature() }
+        Scope(state: \.settings, action: \.settings) { SettingsFeature() }
         Reduce { state, action in
             switch action {
             case .task:
@@ -86,7 +89,7 @@ public struct AppFeature: Sendable {
                     .send(.detail(.info(.configurationSynchronized(change))))
                 )
 
-            case .detail, .menuBar, .diagnostics:
+            case .detail, .menuBar, .diagnostics, .settings:
                 return .none
             }
         }
@@ -99,12 +102,25 @@ public struct AppFeature: Sendable {
 @Reducer
 public struct KeyboardFeature: Sendable {
     public enum Section: String, CaseIterable, Identifiable, Sendable {
-        case info = "设备信息"
-        case configuration = "灯效与配置"
+        case info = "概览"
+        case configuration = "灯光与配置档"
         case keyTest = "按键测试"
         case firmware = "固件升级"
         case customFirmware = "自定义固件"
         public var id: String { rawValue }
+
+        public var symbol: String {
+            switch self {
+            case .info: "gauge.with.dots.needle.67percent"
+            case .configuration: "lightbulb.led"
+            case .keyTest: "keyboard"
+            case .firmware: "arrow.down.circle"
+            case .customFirmware: "flask"
+            }
+        }
+
+        /// Only shown once the user turned on the experimental section in Settings.
+        public var isExperimental: Bool { self == .customFirmware }
     }
 
     @ObservableState
@@ -117,6 +133,7 @@ public struct KeyboardFeature: Sendable {
         public var keyTest: KeyTestFeature.State
         public var firmware: FirmwareFeature.State
         public var customFirmware: CustomFirmwareFeature.State
+        @Shared(.customFirmwareEnabled) public var customFirmwareEnabled
 
         public init(keyboard: KeyboardSummary) {
             self.keyboard = keyboard
@@ -128,6 +145,16 @@ public struct KeyboardFeature: Sendable {
         }
 
         public var isBusy: Bool { firmware.isBusy || customFirmware.isBusy || configuration.isBusy }
+
+        /// Sections in the sidebar. The experimental one stays while it is flashing, even if it was just switched off.
+        public var visibleSections: [Section] {
+            Section.allCases.filter { !$0.isExperimental || customFirmwareEnabled || customFirmware.isBusy }
+        }
+
+        /// The section actually on screen: falls back to the overview when the selected one was hidden.
+        public var displayedSection: Section {
+            visibleSections.contains(section) ? section : .info
+        }
     }
 
     public enum Action: BindableAction {
@@ -161,6 +188,9 @@ public struct KeyboardFeature: Sendable {
                     .send(.firmware(.keyboardUpdated(keyboard))),
                     .send(.customFirmware(.keyboardUpdated(keyboard)))
                 )
+            case .info(.delegate(.show(let target))):
+                state.section = target
+                return .none
             case .binding, .info, .configuration, .keyTest, .firmware, .customFirmware:
                 return .none
             }

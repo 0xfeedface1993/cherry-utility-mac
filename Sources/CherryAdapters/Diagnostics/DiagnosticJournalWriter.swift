@@ -3,7 +3,7 @@ import Foundation
 
 /// 可变文件状态严格归属 queue；入口不直接访问这些字段。
 final class DiagnosticJournalWriter: @unchecked Sendable {
-    let queue = DispatchQueue(label: "dev.local.cherry.utility.diagnostic-writer", qos: .utility)
+    let queue = DispatchQueue(label: "online.odeployer.CherryUtility.diagnostic-writer", qos: .utility)
     let directory: URL
     let runID: UUID
     let limits: DiagnosticJournalLimits

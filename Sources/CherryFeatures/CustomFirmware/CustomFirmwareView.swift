@@ -30,12 +30,18 @@ struct CustomFirmwareView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    Note(tone: .warning) {
+                        Text("实验性功能。").fontWeight(.semibold)
+                            + Text("写入修改过的固件可能让按键行为与预期不同。每次写入后都会读回 CRC 验证，随时可以「恢复原厂固件」。")
+                    }
+                    .accessibilityIdentifier("custom.experimentalNotice")
                     installedBox
                     stockBox
                     variantsBox
                     installBox
                 }
-                .padding(20)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 20)
                 .frame(maxWidth: 980, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
@@ -43,7 +49,7 @@ struct CustomFirmwareView: View {
     }
 
     private var installedBox: some View {
-        GroupBox("键盘当前固件") {
+        Card("键盘当前固件") {
             HStack(alignment: .center) {
                 InstalledFirmwareCard(presentation: CustomFirmwarePresentation.installed(store.state))
                 Spacer()
@@ -55,12 +61,11 @@ struct CustomFirmwareView: View {
                 .disabled(store.isBusy || store.device.isLoading || !store.isConnected)
                 .accessibilityIdentifier("custom.readDevice")
             }
-            .padding(8)
         }
     }
 
     private var stockBox: some View {
-        GroupBox("原厂固件") {
+        Card("原厂固件") {
             VStack(alignment: .leading, spacing: 10) {
                 if store.definitions.count > 1 {
                     Picker("固件版本", selection: Binding(get: { store.definitionID ?? "" }, set: { store.send(.selectDefinition($0)) })) {
@@ -91,19 +96,18 @@ struct CustomFirmwareView: View {
                 }
                 .disabled(store.definition == nil || store.stock.isLoading || store.isBusy)
                 ForEach(Array((store.catalog.value?.rejected ?? []).enumerated()), id: \.offset) { _, error in
-                    Label(error.userMessage, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.caption)
+                    Label(error.userMessage, systemImage: "exclamationmark.triangle").foregroundStyle(Theme.warning).font(.caption)
                 }
                 if let error = store.catalog.errorMessage {
-                    Label(error, systemImage: "xmark.octagon").foregroundStyle(.red)
+                    Label(error, systemImage: "xmark.octagon").foregroundStyle(Theme.danger)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
         }
     }
 
     private var variantsBox: some View {
-        GroupBox("方案") {
+        Card("方案") {
             HStack(alignment: .top, spacing: 16) {
                 VariantListView(
                     rows: CustomFirmwarePresentation.variantRows(store.state),
@@ -124,7 +128,6 @@ struct CustomFirmwareView: View {
                 editor
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(8)
         }
     }
 
@@ -138,12 +141,12 @@ struct CustomFirmwareView: View {
                     .disabled(store.isBusy || editor.isSaving)
                     .accessibilityIdentifier("custom.variant.name")
                 if let notice = store.notice {
-                    Label(notice, systemImage: "xmark.octagon").foregroundStyle(.red)
+                    Label(notice, systemImage: "xmark.octagon").foregroundStyle(Theme.danger)
                 }
                 if !store.unknownSelections.isEmpty {
                     HStack {
                         Label("方案包含当前定义不认识的选项：\(store.unknownSelections.joined(separator: "、"))", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Theme.warning)
                         Button("移除") { store.send(.removeUnknownSelectionsTapped) }
                     }
                 }
@@ -180,7 +183,7 @@ struct CustomFirmwareView: View {
     }
 
     private var installBox: some View {
-        GroupBox("写入键盘") {
+        Card("写入键盘") {
             VStack(alignment: .leading, spacing: 12) {
                 PhaseView(phase: store.phase)
                 HStack {
@@ -205,7 +208,6 @@ struct CustomFirmwareView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
         }
     }
 
@@ -265,9 +267,9 @@ struct StockStatusView: View {
                 HStack { ProgressView().controlSize(.small); Text("获取并校验中…") }
             case .loaded(let package):
                 Label("已获取：\(package.displayName) · CRC \(CustomFirmwarePresentation.crc(package.image.embeddedCRC)) ✓", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Theme.success)
             case .failed(let message):
-                Label(message, systemImage: "xmark.octagon").foregroundStyle(.red)
+                Label(message, systemImage: "xmark.octagon").foregroundStyle(Theme.danger)
             }
         }
         .font(.callout)
@@ -456,12 +458,12 @@ struct PhaseView: View {
         case .finished(let target, let status):
             VStack(alignment: .leading, spacing: 4) {
                 Label("已写入\(target)，键盘读回的 CRC 与写入镜像一致", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Theme.success)
                 Text("固件 CRC \(CustomFirmwarePresentation.crc(status.crc)) · 按官方建议：关闭键盘电源后重新插拔 USB 线。")
                     .font(.caption).foregroundStyle(.secondary)
             }
         case .failed(let message):
-            Label(message, systemImage: "xmark.octagon.fill").foregroundStyle(.red)
+            Label(message, systemImage: "xmark.octagon.fill").foregroundStyle(Theme.danger)
         }
     }
 }

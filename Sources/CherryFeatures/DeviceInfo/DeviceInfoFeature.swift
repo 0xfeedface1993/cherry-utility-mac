@@ -41,6 +41,12 @@ public struct DeviceInfoFeature: Sendable {
         case firmwareLoaded(Result<DeviceFirmwareStatus, any Error>, keyboard: KeyboardID? = nil, generation: UInt64? = nil)
         case releaseLoaded(Result<FirmwareRelease?, any Error>, keyboard: KeyboardID? = nil, generation: UInt64? = nil)
         case keyboardUpdated(KeyboardSummary?)
+        case delegate(Delegate)
+
+        public enum Delegate: Equatable {
+            /// Shortcut buttons on the overview jump to another section.
+            case show(KeyboardFeature.Section)
+        }
     }
 
     enum CancelID { case refresh, battery, release }
@@ -190,6 +196,9 @@ public struct DeviceInfoFeature: Sendable {
                 guard state.isConnected, keyboard == nil || keyboard == state.keyboard.id else { return .none }
                 if case .failure = result, state.latestRelease.value != nil { return .none }
                 state.latestRelease = Loadable(result)
+                return .none
+
+            case .delegate:
                 return .none
 
             case .keyboardUpdated(let keyboard):

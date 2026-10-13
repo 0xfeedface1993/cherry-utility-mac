@@ -5,7 +5,7 @@ import Synchronization
 
 /// 固定 Logger 与 signposter；文件 sink 只接收同一份白名单事件。
 public final class OSLogDiagnostics: Sendable {
-    public static let subsystem = "dev.local.cherry.utility"
+    public static let subsystem = "online.odeployer.CherryUtility"
     private let clock: DiagnosticClock
     private let wallClock: @Sendable () -> Date
     private let outputs: [String: Output]

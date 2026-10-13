@@ -11,26 +11,37 @@ struct KeyTestView: View {
                 accessBanner
             }
             if let error = store.captureError {
-                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                Note(tone: .warning) { Text(error) }
                     .accessibilityIdentifier("keytest.error")
             }
+            stats
             if let layout = store.layout {
                 KeyboardCanvas(layout: layout, pressed: store.pressed, tested: store.tested)
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("keytest.canvas")
-                    .frame(maxWidth: .infinity)
                     .aspectRatio(layout.width / layout.height, contentMode: .fit)
+                    .frame(maxWidth: 860)
+                    .frame(maxWidth: .infinity)
+                    .card(padding: 18)
             } else {
                 ContentUnavailableView("该型号没有键位图", systemImage: "keyboard", description: Text("下方仍会列出收到的按键事件"))
                     .frame(height: 160)
+                    .card()
             }
-            stats
-            eventLog
+            HStack(alignment: .top, spacing: 16) {
+                eventLog
+                tips
+            }
         }
-        .padding(20)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 20)
         .toolbar {
             ToolbarItemGroup {
-                Toggle("屏蔽本应用快捷键", isOn: $store.suppressAppShortcuts)
+                Toggle(isOn: $store.suppressAppShortcuts) {
+                    Label("屏蔽本应用快捷键", systemImage: "command")
+                }
+                .toggleStyle(.button)
+                .labelStyle(.titleAndIcon)
                     .accessibilityIdentifier("keytest.suppress")
                     .help("测试期间按键不会触发本应用的快捷键（如 ⌘Q）；系统级快捷键无法屏蔽")
                 Button {
@@ -47,7 +58,7 @@ struct KeyTestView: View {
 
     private var accessBanner: some View {
         HStack(spacing: 12) {
-            Image(systemName: "hand.raised.fill").foregroundStyle(.orange).font(.title2)
+            IconTile(systemImage: "hand.raised.fill", tint: Theme.warning, background: Theme.warningSubtle)
             VStack(alignment: .leading, spacing: 2) {
                 Text("需要“输入监控”权限").font(.headline)
                 Text("macOS 要求应用获得此权限才能读取键盘按键报文。授权后请重新打开本应用。")
@@ -58,49 +69,74 @@ struct KeyTestView: View {
             Button("请求权限") { store.send(.requestAccessTapped) }
                 .accessibilityIdentifier("keytest.requestAccess")
             Button("打开系统设置") { store.send(.openSettingsTapped) }
+                .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("keytest.openSettings")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("keytest.access")
-        .padding(12)
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .padding(14)
+        .background(Theme.warningSubtle, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.warningLine, lineWidth: 0.5))
     }
 
     private var stats: some View {
-        HStack(spacing: 24) {
+        HStack(spacing: 22) {
+            Label(store.isCapturing ? "正在监听" : "未监听", systemImage: store.isCapturing ? "dot.radiowaves.left.and.right" : "pause.circle")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(store.isCapturing ? Theme.success : .secondary)
+                .accessibilityIdentifier("keytest.state")
+            Divider().frame(height: 28)
             stat("已测按键", store.layout == nil ? "\(store.tested.count)" : "\(store.testedLayoutCount) / \(store.testableCount)", id: "keytest.tested")
             stat("当前按下", "\(store.pressed.count)", id: "keytest.pressed")
             stat("最多同时按下", "\(store.maxSimultaneous)", id: "keytest.max")
             stat("事件数", "\(store.eventCount)", id: "keytest.events")
-            Spacer()
-            Label(store.isCapturing ? "正在监听" : "未监听", systemImage: store.isCapturing ? "dot.radiowaves.left.and.right" : "pause.circle")
-                .foregroundStyle(store.isCapturing ? .green : .secondary)
-                .accessibilityIdentifier("keytest.state")
+            Spacer(minLength: 8)
+            legend
         }
+        .card(padding: 12)
     }
 
     private func stat(_ title: String, _ value: String, id: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.title2.monospacedDigit().weight(.semibold))
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value).font(.title3.monospacedDigit().weight(.bold))
                 .accessibilityIdentifier(id)
+            Text(title).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var legend: some View {
+        HStack(spacing: 12) {
+            legendItem("未测") { RoundedRectangle(cornerRadius: 3).fill(Color(nsColor: .controlBackgroundColor)).overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.separator)) }
+            legendItem("已测") { RoundedRectangle(cornerRadius: 3).fill(KeyCapView.testedFill) }
+            legendItem("按下") { RoundedRectangle(cornerRadius: 3).fill(Theme.accent) }
+            legendItem("不可测") { RoundedRectangle(cornerRadius: 3).strokeBorder(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [2, 1.5])) }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+    }
+
+    private func legendItem<S: View>(_ title: String, @ViewBuilder swatch: () -> S) -> some View {
+        HStack(spacing: 5) {
+            swatch().frame(width: 12, height: 12)
+            Text(title)
         }
     }
 
     private var eventLog: some View {
-        GroupBox("最近事件") {
+        Card("最近事件", subtitle: "最新在上") {
             if store.log.isEmpty {
                 Text(store.isCapturing ? "按下键盘上的任意键…" : "—")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 60)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(store.log) { event in
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(store.log.enumerated()), id: \.element.id) { index, event in
                             HStack(spacing: 12) {
                                 Image(systemName: event.isDown ? "arrow.down.circle.fill" : "arrow.up.circle")
-                                    .foregroundStyle(event.isDown ? Color.accentColor : .secondary)
-                                Text(event.label).frame(width: 70, alignment: .leading)
+                                    .foregroundStyle(event.isDown ? Theme.accentText : .secondary)
+                                Text(event.label).fontWeight(.semibold).frame(width: 70, alignment: .leading)
                                     .accessibilityIdentifier("keytest.log.label")
                                 Text(event.usage.description).font(.caption.monospaced()).foregroundStyle(.secondary)
                                 Spacer()
@@ -108,12 +144,29 @@ struct KeyTestView: View {
                                     Text(String(format: "+%.1f ms", delta)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                                 }
                             }
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .background(index.isMultiple(of: 2) ? Theme.inset : .clear, in: RoundedRectangle(cornerRadius: 6))
                         }
                     }
                 }
                 .frame(minHeight: 120, maxHeight: .infinity)
             }
         }
+    }
+
+    private var tips: some View {
+        Card("小提示") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("• 旋钮的左转、按下、右转显示在右上角。")
+                Text("• Fn 由键盘内部处理，不产生 HID 事件，显示为虚线。")
+                Text("• 系统级快捷键（如 ⌘Space）无法屏蔽。")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: 250)
     }
 }
 
@@ -187,10 +240,12 @@ struct KeyCapView: View {
         key.usage.map { "\(key.label)  \($0.description)" } ?? "Fn 由键盘内部处理，不产生 HID 事件"
     }
 
+    static let testedFill = Theme.dynamic(0xB9E7C8, 0x245A37)
+
     private var fill: Color {
         switch state {
-        case .pressed: .accentColor
-        case .tested: .green.opacity(0.35)
+        case .pressed: Theme.accent
+        case .tested: Self.testedFill
         case .untested: Color(nsColor: .controlBackgroundColor)
         case .undetectable: Color.secondary.opacity(0.08)
         }

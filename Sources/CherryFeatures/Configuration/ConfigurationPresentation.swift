@@ -11,6 +11,9 @@ struct ProfileTabsPresentation: Equatable {
         let isActive: Bool
         let isSelected: Bool
         let isActivating: Bool
+        /// Colour strip on the card; nil draws a rainbow (random colour).
+        let swatch: LEDColor?
+        let hasSwatch: Bool
     }
 
     let items: [Item]
@@ -85,7 +88,9 @@ extension ConfigurationFeature.State {
                     summary: config.map { "\(model?.effectName($0.lightingEffect) ?? "") · \(LightingText.brightness($0.brightness))" } ?? "—",
                     isActive: activeProfile == n,
                     isSelected: selectedProfile == n,
-                    isActivating: activatingProfile == n
+                    isActivating: activatingProfile == n,
+                    swatch: config.flatMap { $0.randomColor ? nil : $0.color },
+                    hasSwatch: config != nil
                 )
             },
             isEnabled: isConnected && keyboard.canConfigure

@@ -25,6 +25,7 @@ public struct MenuBarFeature: Sendable {
         public var presets: [ProfilePreset] = []
         public var errorMessage: String?
         public var lastUpdated: Date?
+        @Shared(.showBatteryInMenuBar) public var showsBatteryInLabel
 
         public init() {}
         public var keyboard: KeyboardSummary? { selectedID.flatMap { keyboards[id: $0] } ?? keyboards.first }

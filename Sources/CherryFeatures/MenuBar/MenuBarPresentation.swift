@@ -75,9 +75,15 @@ extension MenuBarFeature.State {
         )
     }
 
-    /// Text next to the status-item icon.
+    /// Text next to the status-item icon (hidden when turned off in Settings).
     var labelText: String? {
-        currentSnapshot.map { "\($0.battery.percent)%" }
+        guard showsBatteryInLabel else { return nil }
+        return currentSnapshot.map { "\($0.battery.percent)%" }
+    }
+
+    /// Spoken value of the status item; independent of whether the percentage is drawn.
+    var labelAccessibilityValue: String {
+        currentSnapshot.map { "\($0.battery.percent)%" } ?? (keyboard == nil ? "未连接" : "—")
     }
 }
 

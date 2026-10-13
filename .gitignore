@@ -1,6 +1,9 @@
 # XcodeGen 生成的工程，以 project.yml 为准
 /CherryUtility.xcodeproj/
 
+# 独立 Git 仓库，由 CherryKit 自行管理版本
+/Packages/CherryKit/
+
 # SwiftPM / Xcode 构建产物与本地状态（包含嵌套包）
 .build/
 build/

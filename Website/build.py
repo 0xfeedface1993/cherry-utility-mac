@@ -92,7 +92,7 @@ def appcast(data):
       <sparkle:version>{int(r['build'])}</sparkle:version>
       <sparkle:shortVersionString>{html.escape(r['version'])}</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>{html.escape(r.get('minimumSystemVersion', data['minimumSystemVersion']))}</sparkle:minimumSystemVersion>
-      <description><![CDATA[<h3>{html.escape(r['version'])}</h3><ul>{notes}</ul>]]></description>
+      <description><![CDATA[<meta charset="utf-8"><h3>{html.escape(r['version'])}</h3><ul>{notes}</ul>]]></description>
       <enclosure url="{base}downloads/{r['dmg']}" length="{int(r['length'])}" type="application/octet-stream" sparkle:edSignature="{html.escape(r['edSignature'])}"/>
     </item>""")
     return f"""<?xml version="1.0" encoding="utf-8"?>

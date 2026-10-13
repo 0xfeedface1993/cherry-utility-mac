@@ -6,6 +6,8 @@ options:
   settingPresets: all
   xcodeVersion: "27.0"
   createIntermediateGroups: true
+  # All UI text is Chinese; without this the bundle reports "en", so Sparkle's dialogs and system date formats come out in English.
+  developmentLanguage: zh-Hans
 configs:
   Debug: debug
   Release: release
@@ -102,6 +104,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: online.odeployer.CherryUtility.uitests
         GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: UITests/CherryUtilityUITests.entitlements
         TEST_TARGET_NAME: CherryUtility
         ENABLE_HARDENED_RUNTIME: NO
 schemes:

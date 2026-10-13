@@ -37,10 +37,11 @@
 
 ## 发布
 
-- `Scripts/release.sh <版本> <build> [--note …]`：Release 归档（universal、Hardened Runtime、Developer ID）→ 重签 Sparkle 内嵌组件 → DMG（卷图标）→ 公证并 staple → Sparkle 签名 → 写入 `Website/releases.json`。凭据从仓库外的 `~/Documents/开发密钥/CherryUtility-release.env` 读取；缺凭据时直接失败。`--skip-notarize` 只试跑，不写 releases.json；`--resume` 沿用中断那次的 DMG，从公证继续（已附票据或已有同一 DMG 的通过记录时不再上传）；`CHERRY_DERIVED_DATA=.release/<上次>/DerivedData` 复用构建缓存，省去约 10 分钟的 universal 全量编译。build 号必须递增。
+- `Scripts/release.sh <版本> <build> [--note …]`：Release 归档（universal、Hardened Runtime、Developer ID）→ 重签 Sparkle 内嵌组件 → DMG（卷图标、背景图与图标布局）→ 公证并 staple → Sparkle 签名 → 写入 `Website/releases.json`。凭据从仓库外的 `~/Documents/开发密钥/CherryUtility-release.env` 读取；缺凭据时直接失败。`--skip-notarize` 只试跑，不写 releases.json；`--resume` 沿用中断那次的 DMG，从公证继续（已附票据或已有同一 DMG 的通过记录时不再上传）；`CHERRY_DERIVED_DATA=.release/<上次>/DerivedData` 复用构建缓存，省去约 10 分钟的 universal 全量编译。build 号必须递增。
 - `Scripts/deploy-website.sh --artifacts .release/<版本>-<build>`：由 `Website/releases.json` 生成官网、`appcast.xml`、`releases/latest.json`，复制到 `~/Library/Application Support/CherryUtility-Website/releases/<id>` 后原子切换 `current`；`Scripts/rollback-website.sh` 交换 `current`/`previous`。只有已公证且有 Sparkle 签名的版本才会出现在下载按钮和 appcast 中。
 - `Scripts/verify-update.sh <旧版.dmg> <新版.dmg>`：Sparkle 端到端检查，不启动 App。把旧版 App 复制到 `.release/update-check/<时间>/`，用 `Website/build.py` 生成只含新版的本地 appcast，再由 Sparkle 自带的 `sparkle-cli` 完成检查、下载、EdDSA 校验与安装，最后核对版本、签名和 Team。新版可以是 `--skip-notarize` 的试跑产物。`--public <旧版.dmg>` 只读询问公开 appcast。Sparkle 写入 `online.odeployer.CherryUtility` 偏好域的 `SU*` 键和缓存，脚本结束时会还原。
 - 公网路由：Cloudflare → 远端 FRPS → 本机 frpc 代理 `cherry-utility-website`（`locations = ["/cherry-utility"]`）→ Caddy `127.0.0.1:7904`（`Website/deploy/Caddyfile.template`，由 Homebrew Caddyfile import）。
+- `Scripts/make-dmg.sh <App> <输出.dmg>`：`release.sh` 用它制作 DMG，也可以单独试做。卷图标、窗口布局和背景图都由 dmgbuild 写入，不打开 Finder，也不需要「自动化」权限。dmgbuild 首次运行时从 PyPI 装进 `.release/tools/dmgbuild-venv`，版本已固定。窗口 660×400 pt，App 图标放在 (165, 200)，「应用程序」放在 (495, 200)，与背景图的箭头对齐。背景图 `Design/icons/DMGBackground{,@2x}.png` 由 `DMGBackground.svg` 生成：改完 SVG 后运行 `swift Scripts/render-dmg-background.swift`。
 - 设计：Figma 文件 <https://www.figma.com/design/EeQJbjGZbmwHuosIsrUDQo>；`Design/mockups/build.py` 生成高保真稿，`Design/icons/*.svg` 是图标源文件。官网截图来自真实视图：`CHERRY_RENDER_DIR=<目录> swift test --filter ScreenRender`（在 `Packages/CherryKit` 下运行）。
 - 进度与决策：[Docs/公开发布与官网-进度.md](Docs/公开发布与官网-进度.md)。
 

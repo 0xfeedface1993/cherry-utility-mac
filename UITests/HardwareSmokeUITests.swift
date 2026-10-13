@@ -269,7 +269,6 @@ final class HardwareSmokeUITests: CherryUITestCase {
 
     private func savePreset(named name: String) {
         let field = element("preset.name")
-        reveal(field)
         type(name, into: field)
         element("preset.save").click()
         waitForText("banner.success", contains: "已保存预设「\(name)」")

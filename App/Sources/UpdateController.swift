@@ -1,23 +1,30 @@
+import AppKit
 import CherryFeatures
 import Foundation
 import Observation
 import ServiceManagement
 import Sparkle
 
-/// Sparkle adapter. Updates run only in builds with a valid signed feed (Info.plist `SUFeedURL` + `SUPublicEDKey`),
-/// outside simulation mode, and — unless `CHERRY_ENABLE_UPDATER=1` — only in Release builds, so development runs
-/// never offer to replace themselves.
+/// Sparkle adapter. Updates run only in builds with a valid signed feed (Info.plist `SUFeedURL` + `SUPublicEDKey`):
+/// in Release builds outside simulation mode, or wherever `CHERRY_ENABLE_UPDATER=1` asks for them, so development
+/// runs and UI tests never offer to replace themselves by accident.
+///
+/// Debug builds also honour `CHERRY_UPDATE_FEED=<url>` (UI tests point it at a local appcast). Such a run shares the
+/// real app's defaults domain and per-bundle folders, so when it quits normally (⌘Q, not a kill) it puts every `SU*`
+/// preference back the way it found it and removes the cache / WebKit folders that Sparkle's release-notes view created.
 @MainActor
 @Observable
 final class UpdateController {
     private let controller: SPUStandardUpdaterController?
+    private let feedOverride: FeedOverride?
     private var observation: NSKeyValueObservation?
     private(set) var canCheckForUpdates = false
 
     init(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) {
-        let enabled = Self.isConfigured(bundle) && environment["CHERRY_SIMULATION"] == nil
-            && (Self.isRelease || environment["CHERRY_ENABLE_UPDATER"] == "1")
-        controller = enabled ? SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil) : nil
+        let requested = environment["CHERRY_ENABLE_UPDATER"] == "1"
+        let enabled = Self.isConfigured(bundle) && (requested || (Self.isRelease && environment["CHERRY_SIMULATION"] == nil))
+        feedOverride = enabled && !Self.isRelease ? environment["CHERRY_UPDATE_FEED"].map { FeedOverride(feed: $0) } : nil
+        controller = enabled ? SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: feedOverride, userDriverDelegate: nil) : nil
         observation = controller?.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
             let value = updater.canCheckForUpdates
             Task { @MainActor in self?.canCheckForUpdates = value }
@@ -66,6 +73,49 @@ final class UpdateController {
         #else
         true
         #endif
+    }
+
+    /// Debug-only feed redirection for UI tests, plus the bookkeeping that keeps their checks out of the real
+    /// preferences: the `SU*` keys present at launch are restored (and new ones removed) when the app terminates.
+    private final class FeedOverride: NSObject, SPUUpdaterDelegate, @unchecked Sendable { // immutable after init
+        private let feed: String
+        private let defaults = UserDefaults.standard
+        private let saved: [String: Any]
+        /// Per-bundle folders that did not exist at launch (WebKit creates them for the release notes).
+        private let newFolders: [URL]
+        private var termination: NSObjectProtocol?
+
+        init(feed: String) {
+            self.feed = feed
+            saved = Self.sparkleKeys(in: defaults)
+            let id = Bundle.main.bundleIdentifier ?? ""
+            let library = URL.libraryDirectory
+            newFolders = [library.appending(path: "Caches/\(id)"), library.appending(path: "WebKit/\(id)"),
+                          library.appending(path: "HTTPStorages/\(id)"), library.appending(path: "HTTPStorages/\(id).binarycookies")]
+                .filter { !FileManager.default.fileExists(atPath: $0.path) }
+            super.init()
+            termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
+                self?.restore()
+            }
+        }
+
+        func feedURLString(for updater: SPUUpdater) -> String? { feed }
+
+        private func restore() {
+            for key in Self.sparkleKeys(in: defaults).keys where saved[key] == nil {
+                defaults.removeObject(forKey: key)
+            }
+            for (key, value) in saved {
+                defaults.set(value, forKey: key)
+            }
+            defaults.synchronize()
+            for folder in newFolders { try? FileManager.default.removeItem(at: folder) }
+        }
+
+        private static func sparkleKeys(in defaults: UserDefaults) -> [String: Any] {
+            guard let domain = Bundle.main.bundleIdentifier, let all = defaults.persistentDomain(forName: domain) else { return [:] }
+            return all.filter { $0.key.hasPrefix("SU") }
+        }
     }
 
     private static func isConfigured(_ bundle: Bundle) -> Bool {

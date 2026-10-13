@@ -72,7 +72,7 @@ if (( resume )); then
   [[ -f "$dmg" && -d "$app" ]] || { print -u2 "nothing to resume in $out"; exit 1; }
   codesign --verify --verbose=2 "$dmg"
 else
-  rm -rf "$archive" "$out/dmg-root" "$dmg" "$dmg.sha256" "$out/notary-submission.json"
+  rm -rf "$archive" "$dmg" "$dmg.sha256" "$out/notary-submission.json"
 
   step "归档 $version ($build)"
   cd "$repo"
@@ -115,30 +115,7 @@ else
   [[ "$signature_info" == *"flags=0x10000(runtime)"* ]] || { print -u2 "hardened runtime flag missing"; exit 1; }
 
   step "制作 DMG"
-  staging="$out/dmg-root"
-  mkdir -p "$staging"
-  ditto "$app" "$staging/CherryUtility.app"
-  ln -s /Applications "$staging/Applications"
-  iconset="$out/VolumeIcon.iconset"
-  rm -rf "$iconset"; mkdir -p "$iconset"
-  src_icons="$repo/App/Resources/Assets.xcassets/AppIcon.appiconset"
-  for size in 16 32 128 256 512; do
-    cp "$src_icons/icon_$size.png" "$iconset/icon_${size}x${size}.png"
-    cp "$src_icons/icon_$((size * 2)).png" "$iconset/icon_${size}x${size}@2x.png" 2>/dev/null \
-      || sips -z $((size * 2)) $((size * 2)) "$src_icons/icon_1024.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
-  done
-  iconutil -c icns "$iconset" -o "$staging/.VolumeIcon.icns"
-  rw="$out/rw.dmg"
-  rm -f "$rw"
-  hdiutil create -quiet -volname "CHERRY Utility" -srcfolder "$staging" -fs HFS+ -format UDRW -ov "$rw"
-  mountpoint="$(hdiutil attach -nobrowse -noautoopen -readwrite "$rw" | awk -F'\t' '/\/Volumes\// {print $NF}')"
-  SetFile -a C "$mountpoint"
-  SetFile -a V "$mountpoint/.VolumeIcon.icns"
-  if [[ -n "${CHERRY_DMG_LAYOUT:-}" ]]; then "$CHERRY_DMG_LAYOUT" "$mountpoint"; fi
-  sync
-  hdiutil detach -quiet "$mountpoint"
-  hdiutil convert -quiet "$rw" -format UDZO -imagekey zlib-level=9 -o "$dmg"
-  rm -f "$rw"
+  "$repo/Scripts/make-dmg.sh" "$app" "$dmg"
   codesign --force --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$dmg"
   codesign --verify --verbose=2 "$dmg"
 fi

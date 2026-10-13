@@ -10,8 +10,9 @@ class CherryUITestCase: XCTestCase {
     /// Scenarios understood by the app: `pixiu75`, `empty`, `unsupported`, `denied`, `wireless`.
     /// `nil` launches against real hardware. `experimental` lists hidden features to turn on (`customFirmware`);
     /// in simulation they live in a throwaway preferences suite, so the real app's settings are untouched.
+    /// `environment` adds launch variables (e.g. the local update feed of `SettingsUITests`).
     @discardableResult
-    func launch(_ scenario: String? = "pixiu75", experimental: [String] = []) -> XCUIApplication {
+    func launch(_ scenario: String? = "pixiu75", experimental: [String] = [], environment extra: [String: String] = [:]) -> XCUIApplication {
         continueAfterFailure = false
         let environment = ProcessInfo.processInfo.environment
         let app = environment["CHERRY_PROFILE_APP"].map { XCUIApplication(url: URL(fileURLWithPath: $0)) } ?? XCUIApplication()
@@ -20,6 +21,7 @@ class CherryUITestCase: XCTestCase {
             app.launchEnvironment["CHERRY_PRESET_DIR"] = "/tmp/cherry-uitest-\(UUID().uuidString)"
             app.launchEnvironment["CHERRY_EXPERIMENTAL"] = experimental.joined(separator: ",")
         }
+        app.launchEnvironment.merge(extra) { _, new in new }
         if let output = environment["CHERRY_PROFILE_OUTPUT"] {
             app.launchEnvironment["CHERRY_DIAGNOSTIC_MODE"] = "profile"
             app.launchEnvironment["CHERRY_DIAGNOSTIC_DIR"] = output + "/journal"
@@ -46,19 +48,25 @@ class CherryUITestCase: XCTestCase {
         return [e.label, value].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
-    /// Scrolls the main window's content until `e` can be clicked (macOS UI tests do not auto-scroll).
+    /// Scrolls the main window's content until `e` can be clicked (macOS UI tests do not auto-scroll). With unsaved
+    /// edits the configuration page's floating save bar covers the bottom of the scroll area; a click there lands on
+    /// the bar (the preset name field then never gets focus), so `e` must also sit above it.
     func reveal(_ e: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         // The detail content is the widest scroll view (the first one is the sidebar).
         guard let scroll = window.scrollViews.allElementsBoundByIndex.max(by: { $0.frame.width < $1.frame.width }) else {
             return XCTFail("窗口里没有滚动视图", file: file, line: line)
         }
+        let saveBar = element("savebar.status", in: window)
+        func clear() -> Bool {
+            e.isHittable && (!saveBar.exists || e.frame.maxY < saveBar.frame.minY - 16)
+        }
         // The sign of deltaY that moves content up differs between input devices; try both directions.
         for delta in [-150.0, 150.0] {
-            for _ in 0..<12 where !e.isHittable {
+            for _ in 0..<12 where !clear() {
                 scroll.scroll(byDeltaX: 0, deltaY: delta)
             }
         }
-        XCTAssertTrue(e.isHittable, "无法滚动到 \(e)", file: file, line: line)
+        XCTAssertTrue(clear(), "无法滚动到 \(e)", file: file, line: line)
     }
 
     func text(_ id: String) -> String { text(of: element(id)) }
@@ -141,6 +149,7 @@ class CherryUITestCase: XCTestCase {
     /// Types `string` into a text field and checks what arrived. XCUITest enters non-ASCII text through Unicode Hex Input,
     /// whose keystrokes occasionally interleave under load (出 U+51FA arrived as U+551F), so a mismatch is cleared and retyped.
     func type(_ string: String, into field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        reveal(field, file: file, line: line)
         for _ in 0..<3 {
             field.click()
             field.typeKey("a", modifierFlags: .command)
@@ -154,12 +163,19 @@ class CherryUITestCase: XCTestCase {
 
     /// Opens the pull-down menu `id` and picks `item`. A borderless SwiftUI `Menu` occasionally ignores a click that
     /// arrives while its row is still being laid out (seen right after saving a preset), so the click is retried.
+    /// The menu bar's own items with the same title (the system Edit menu has 「删除」) are never hittable while closed,
+    /// so the entry is the hittable match.
     func choose(_ item: String, fromMenu id: String, file: StaticString = #filePath, line: UInt = #line) {
-        let button = element(id), entry = app.menuItems[item]
+        let button = element(id)
+        let entries = app.menuItems.matching(NSPredicate(format: "title == %@", item))
         for _ in 0..<3 {
             XCTAssertTrue(button.waitForExistence(timeout: 5), "没有菜单按钮 \(id)", file: file, line: line)
             button.click()
-            if entry.waitForExistence(timeout: 2) { return entry.click() }
+            let deadline = Date().addingTimeInterval(2)
+            while Date() < deadline {
+                if let entry = entries.allElementsBoundByIndex.first(where: { $0.isHittable }) { return entry.click() }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            }
             if app.menus.firstMatch.exists { app.typeKey(.escape, modifierFlags: []) }
         }
         attachAccessibilityTree()

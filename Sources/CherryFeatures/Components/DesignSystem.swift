@@ -226,11 +226,14 @@ struct Note<Content: View>: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: systemImage ?? defaultSymbol)
                 .foregroundStyle(iconColor)
+                .accessibilityHidden(true)
             content
                 .font(.callout)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        // One element read as a sentence; an identifier set on the note then lands on it instead of on the icon.
+        .accessibilityElement(children: .combine)
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
         .background(background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))

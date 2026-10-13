@@ -37,7 +37,7 @@
 
 ## 发布
 
-- `Scripts/release.sh <版本> <build> [--note …]`：Release 归档（universal、Hardened Runtime、Developer ID）→ 重签 Sparkle 内嵌组件 → DMG（卷图标）→ 公证并 staple → Sparkle 签名 → 写入 `Website/releases.json`。凭据从仓库外的 `~/Documents/开发密钥/CherryUtility-release.env` 读取；缺凭据时直接失败。`--skip-notarize` 只试跑，不写 releases.json。build 号必须递增。
+- `Scripts/release.sh <版本> <build> [--note …]`：Release 归档（universal、Hardened Runtime、Developer ID）→ 重签 Sparkle 内嵌组件 → DMG（卷图标）→ 公证并 staple → Sparkle 签名 → 写入 `Website/releases.json`。凭据从仓库外的 `~/Documents/开发密钥/CherryUtility-release.env` 读取；缺凭据时直接失败。`--skip-notarize` 只试跑，不写 releases.json；`--resume` 沿用中断那次的 DMG，从公证继续（已附票据或已有同一 DMG 的通过记录时不再上传）；`CHERRY_DERIVED_DATA=.release/<上次>/DerivedData` 复用构建缓存，省去约 10 分钟的 universal 全量编译。build 号必须递增。
 - `Scripts/deploy-website.sh --artifacts .release/<版本>-<build>`：由 `Website/releases.json` 生成官网、`appcast.xml`、`releases/latest.json`，复制到 `~/Library/Application Support/CherryUtility-Website/releases/<id>` 后原子切换 `current`；`Scripts/rollback-website.sh` 交换 `current`/`previous`。只有已公证且有 Sparkle 签名的版本才会出现在下载按钮和 appcast 中。
 - `Scripts/verify-update.sh <旧版.dmg> <新版.dmg>`：Sparkle 端到端检查，不启动 App。把旧版 App 复制到 `.release/update-check/<时间>/`，用 `Website/build.py` 生成只含新版的本地 appcast，再由 Sparkle 自带的 `sparkle-cli` 完成检查、下载、EdDSA 校验与安装，最后核对版本、签名和 Team。新版可以是 `--skip-notarize` 的试跑产物。`--public <旧版.dmg>` 只读询问公开 appcast。Sparkle 写入 `online.odeployer.CherryUtility` 偏好域的 `SU*` 键和缓存，脚本结束时会还原。
 - 公网路由：Cloudflare → 远端 FRPS → 本机 frpc 代理 `cherry-utility-website`（`locations = ["/cherry-utility"]`）→ Caddy `127.0.0.1:7904`（`Website/deploy/Caddyfile.template`，由 Homebrew Caddyfile import）。

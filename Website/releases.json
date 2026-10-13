@@ -6,13 +6,20 @@
     {
       "version": "1.0.0",
       "build": 1,
-      "date": null,
+      "date": "2026-10-13",
       "notes": [
         "首个公开版本：菜单栏常驻、设备概览、灯光与配置档、本地预设、按键测试与固件升级。",
         "全新界面设计，支持浅色与深色模式。",
         "内置 Sparkle 自动更新，更新包使用 EdDSA 签名并经过 Apple 公证。",
         "自定义固件改为实验性功能，默认隐藏，可在「设置 › 实验性功能」中开启。"
-      ]
+      ],
+      "published": "2026-10-13T15:14:04+00:00",
+      "dmg": "CherryUtility-1.0.0.dmg",
+      "length": 8497623,
+      "sha256": "985de2ff7891b2b52ef9f59f27ec37e4eaf5a7e5906f9db99d27c5ef6f5186ea",
+      "edSignature": "vY1zZ0F8oOutHaosVTjOQxRXYNUbJdh8HSUSlpnJvjkZk0t4Tkq/wNYzpQHgUYcsoGjEOmblpsNEpmVAtLBZAQ==",
+      "minimumSystemVersion": "15.0",
+      "notarized": true
     }
   ]
 }

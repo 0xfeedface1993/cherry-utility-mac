@@ -17,9 +17,31 @@
   - 本地预设：把编辑区保存为预设，之后载入任意配置档，支持导入/导出 `.cherryprofile` 文件。
 - **按键测试**：在 PIXIU 75 的真实键位图上实时显示按键状态，包括旋钮。同时统计已测键数、同时按下的最大键数，以及事件间隔。
 - **固件升级**：从 Cherry 官方目录下载 Windows 升级包，校验 MD5 和 CRC，提取其中的 Telink 固件，直接通过 USB-HID 刷写。刷完后会读回 CRC 核对。
-- **自定义固件**：在已知的原厂固件上选择要修改的功能（例如固定 F 区行为、去掉 Ctrl+Fn 误触、改 Fn 组合键的功能），保存成多个方案，生成补丁镜像后写入键盘并读回验证。页面会识别键盘当前运行的是原厂固件、哪个方案，还是方案的早期版本。可修改的内容由 `.cherryfw` 定义文件描述，详见下文「自定义固件」。
+- **自定义固件（实验性，默认隐藏）**：在「设置 › 实验性功能」中确认风险后才出现。在已知的原厂固件上选择要修改的功能（例如固定 F 区行为、去掉 Ctrl+Fn 误触、改 Fn 组合键的功能），保存成多个方案，生成补丁镜像后写入键盘并读回验证。页面会识别键盘当前运行的是原厂固件、哪个方案，还是方案的早期版本。可修改的内容由 `.cherryfw` 定义文件描述，详见下文「自定义固件」。
 
 已适配并在真机验证的型号：**MX PIXIU 75**（VID 0x046A / PID 0x01E2）。其他 Cherry 设备只显示 USB 信息；如果它的升级包也是同一套 Telink USB_OTA 格式，理论上也能刷写。
+
+- **设置**：登录时打开、启动时是否显示主窗口、菜单栏是否显示电量；应用内更新（Sparkle）；实验性功能。
+
+## 下载与快速上手
+
+公开版本发布在 <https://odeployer.online/cherry-utility/>（Developer ID 签名、Apple 公证、通用二进制、macOS 15+）。
+
+1. 下载 DMG，把 CHERRY Utility 拖进「应用程序」后打开。
+2. 用 USB 线连接键盘并拨到有线模式；菜单栏出现键帽图标（实心 = 已连接）和电量。
+3. 点菜单栏图标切换配置档、灯效、亮度、速度和颜色，立即生效。
+4. 主窗口「灯光与配置档」逐项编辑，修改项标橙点，点「写入键盘」（⌘S）写入，或「放弃」。
+5. 「按键测试」首次使用时按提示授予「输入监控」权限；「固件升级」用官方升级包刷写并读回校验。
+
+应用内置 Sparkle：每天检查 `https://odeployer.online/cherry-utility/appcast.xml`，更新包使用 EdDSA 签名（公钥写在 Info.plist 的 `SUPublicEDKey`）。也可以在 App 菜单「检查更新…」或「设置 › 更新」中手动检查。
+
+## 发布
+
+- `Scripts/release.sh <版本> <build> [--note …]`：Release 归档（universal、Hardened Runtime、Developer ID）→ 重签 Sparkle 内嵌组件 → DMG（卷图标）→ 公证并 staple → Sparkle 签名 → 写入 `Website/releases.json`。凭据从仓库外的 `~/Documents/开发密钥/CherryUtility-release.env` 读取；缺凭据时直接失败。`--skip-notarize` 只试跑，不写 releases.json。build 号必须递增。
+- `Scripts/deploy-website.sh --artifacts .release/<版本>-<build>`：由 `Website/releases.json` 生成官网、`appcast.xml`、`releases/latest.json`，复制到 `~/Library/Application Support/CherryUtility-Website/releases/<id>` 后原子切换 `current`；`Scripts/rollback-website.sh` 交换 `current`/`previous`。只有已公证且有 Sparkle 签名的版本才会出现在下载按钮和 appcast 中。
+- 公网路由：Cloudflare → 远端 FRPS → 本机 frpc 代理 `cherry-utility-website`（`locations = ["/cherry-utility"]`）→ Caddy `127.0.0.1:7904`（`Website/deploy/Caddyfile.template`，由 Homebrew Caddyfile import）。
+- 设计：Figma 文件 <https://www.figma.com/design/EeQJbjGZbmwHuosIsrUDQo>；`Design/mockups/build.py` 生成高保真稿，`Design/icons/*.svg` 是图标源文件。官网截图来自真实视图：`CHERRY_RENDER_DIR=<目录> swift test --filter ScreenRender`（在 `Packages/CherryKit` 下运行）。
+- 进度与决策：[Docs/公开发布与官网-进度.md](Docs/公开发布与官网-进度.md)。
 
 ## 构建
 
@@ -51,7 +73,7 @@ cd Packages/CherryKit && swift test
 xcodebuild -project CherryUtility.xcodeproj -scheme CherryUtility -skipMacroValidation test -only-testing:CherryUtilityUITests
 ```
 
-想不接键盘体验界面，可以在 Xcode 的 Scheme → Run → Environment Variables 里加上 `CHERRY_SIMULATION=pixiu75`。
+想不接键盘体验界面，可以在 Xcode 的 Scheme → Run → Environment Variables 里加上 `CHERRY_SIMULATION=pixiu75`。模拟模式的偏好存放在独立域 `online.odeployer.CherryUtility.simulation`，每次启动清空；`CHERRY_EXPERIMENTAL=customFirmware` 预先打开实验性的自定义固件分区。
 
 ### 单元测试覆盖率
 

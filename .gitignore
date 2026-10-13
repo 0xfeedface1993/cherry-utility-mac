@@ -37,3 +37,4 @@ xcuserdata/
 /Website/dist/
 /.release/
 /Design/mockups/out/
+.release-dryrun.log

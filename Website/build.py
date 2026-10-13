@@ -36,7 +36,9 @@ def load_manifest():
 
 
 def published(data):
-    return [r for r in data["releases"] if r.get("dmg") and r.get("edSignature") and r.get("sha256") and r.get("length")]
+    """Releases with a notarized, Sparkle-signed DMG; anything else is listed as upcoming only."""
+    return [r for r in data["releases"]
+            if r.get("dmg") and r.get("edSignature") and r.get("sha256") and r.get("length") and r.get("notarized") is True]
 
 
 def human_size(n):
@@ -149,17 +151,23 @@ def design(path):
     def inline(m):
         ref = m.group(1)
         p = SRC / ref
-        if p.suffix == ".png" and p.exists():
-            return f'src="data:image/png;base64,{base64.b64encode(p.read_bytes()).decode()}"'
+        kinds = {".png": "image/png", ".webp": "image/webp"}
+        if p.suffix in kinds and p.exists():
+            return f'src="data:{kinds[p.suffix]};base64,{base64.b64encode(p.read_bytes()).decode()}"'
         return m.group(0)
 
-    page = re.sub(r'src="(assets/[^"]+)"', inline, page)
+    # Captures are rendered per theme: drop the dark <source>; dark frames point their <img> at the dark screenshots.
+    page = re.sub(r'<source [^>]*prefers-color-scheme: dark[^>]*>', "", page)
     page = page.replace('<link rel="stylesheet" href="styles.css">', f"<style>{css}</style>")
     body = re.search(r'<div class="site">.*</div>\s*</body>', page, re.S).group(0).rsplit("</body>", 1)[0]
     frames = [(1440, "light", "Website / Desktop 1440 (light)"), (1440, "dark", "Website / Desktop 1440 (dark)"), (390, "light", "Website / Mobile 390 (light)")]
-    two = '<div class="capture">' + "".join(
-        f'<div style="width:{w}px;flex:none">' + body.replace('<div class="site">', f'<div class="site" data-theme="{theme}" data-name="{name}">', 1) + "</div>"
-        for w, theme, name in frames) + "</div>"
+    parts = []
+    for w, theme, name in frames:
+        frame = body.replace('<div class="site">', f'<div class="site" data-theme="{theme}" data-name="{name}">', 1)
+        if theme == "dark":
+            frame = frame.replace("-light.webp", "-dark.webp")
+        parts.append(f'<div style="width:{w}px;flex:none">' + re.sub(r'src="(assets/[^"]+)"', inline, frame) + "</div>")
+    two = '<div class="capture">' + "".join(parts) + "</div>"
     page = re.sub(r'<body>.*</body>', lambda _: f"<body>{two}</body>", page, flags=re.S)
     Path(path).write_text(page)
     print(f"design capture → {path}")

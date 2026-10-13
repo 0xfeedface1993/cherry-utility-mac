@@ -63,7 +63,7 @@ final class SettingsUITests: CherryUITestCase {
         app.typeKey(.escape, modifierFlags: [])
 
         _ = openSettings(tab: "更新")
-        waitForText("settings.version", contains: "1.0.0")
+        waitForVersion()
         XCTAssertFalse(element("settings.checkNow").isEnabled)
     }
 
@@ -133,7 +133,8 @@ final class SettingsUITests: CherryUITestCase {
 
     /// UI-103 已是最新：App 菜单「检查更新…」与设置 › 更新「立即检查」都完成一次真实检查；自动检查 / 自动下载开关联动。
     func testCheckForUpdatesReportsUpToDate() throws {
-        try launchWithLocalFeed(offering: "1.0.0", build: 1)
+        // 比任何发布版都旧的条目：Sparkle 判定已是最新，与 App 当前版本号无关。
+        try launchWithLocalFeed(offering: "0.0.1", build: 0)
 
         let item = checkForUpdatesMenuItem()
         waitUntil("「检查更新…」应可用") { item.isEnabled }
@@ -144,7 +145,7 @@ final class SettingsUITests: CherryUITestCase {
         waitForDisappearance(ok)
 
         _ = openSettings(tab: "更新")
-        waitForText("settings.version", contains: "1.0.0 (1)")
+        waitForVersion()
         let checkNow = wait(for: "settings.checkNow")
         waitUntil("「立即检查」应可用") { checkNow.isEnabled }
         checkNow.click()
@@ -170,25 +171,38 @@ final class SettingsUITests: CherryUITestCase {
 
     /// UI-104 有新版本：「立即检查」弹出 Sparkle 更新窗口，显示新版本与更新说明；选「稍后提醒我」后关闭，不下载、不安装。
     func testCheckForUpdatesOffersNewerVersion() throws {
-        try launchWithLocalFeed(offering: "1.0.1", build: 2)
+        try launchWithLocalFeed(offering: "99.0.0", build: 99999)
         _ = openSettings(tab: "更新")
+        let version = waitForVersion()
         let checkNow = wait(for: "settings.checkNow")
         waitUntil("「立即检查」应可用") { checkNow.isEnabled }
         checkNow.click()
 
         let later = sparkleButton(["稍后提醒我", "Remind Me Later"])
         XCTAssertTrue(sparkleButton(["安装更新", "Install Update"]).exists)
-        waitForAppText("1.0.1")
+        waitForAppText("99.0.0")
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "sparkle-update-available"; screenshot.lifetime = .keepAlways; add(screenshot)
         later.click()
         waitForDisappearance(later)
 
-        // 关闭提示后菜单项恢复可用，App 仍是 1.0.0 (1)。
+        // 关闭提示后菜单项恢复可用，App 版本不变。
         let item = checkForUpdatesMenuItem()
         waitUntil("「检查更新…」应恢复可用") { item.isEnabled }
         app.typeKey(.escape, modifierFlags: [])
-        waitForText("settings.version", contains: "1.0.0 (1)")
+        XCTAssertEqual(waitForVersion(), version)
+    }
+
+    /// The version line of the update tab, e.g. 「1.0.1 (2)」; the tests do not depend on which release is being built.
+    @discardableResult
+    private func waitForVersion(file: StaticString = #filePath, line: UInt = #line) -> String {
+        var version = ""
+        waitUntil("更新页应显示「x.y.z (build)」，实际「\(text("settings.version"))」", file: file, line: line) {
+            guard let match = text("settings.version").firstMatch(of: /\d+\.\d+\.\d+ \(\d+\)/) else { return false }
+            version = String(match.output)
+            return true
+        }
+        return version
     }
 
     /// Any of `fragments` anywhere in the app (Sparkle's windows are outside the main window; its UI may be Chinese or English).

@@ -25,7 +25,7 @@ def main():
     source_app=args.app.resolve(); app=out/'Product/CherryUtility.app'
     shutil.copytree(source_app,app,symlinks=True)
     info=app/'Contents/Info.plist'; metadata=plistlib.loads(info.read_bytes())
-    metadata['CFBundleIdentifier']='dev.local.cherry.utility.profile'
+    metadata['CFBundleIdentifier']='online.odeployer.CherryUtility.profile'
     info.write_bytes(plistlib.dumps(metadata))
     subprocess.run(['codesign','--force','--deep','--sign','-',str(app)],check=True,capture_output=True)
     binary=app/'Contents/MacOS/CherryUtility'

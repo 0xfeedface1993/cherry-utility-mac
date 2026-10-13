@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Badge composed by macOS onto the generic document page for .cherryprofile (UTTypeIconBadgeName). -->
+  <defs>
+    <linearGradient id="skirt" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E0233F"/><stop offset="1" stop-color="#8A0D2E"/></linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF5A76"/><stop offset="1" stop-color="#D3123F"/></linearGradient>
+  </defs>
+  <path d="M 80 46 L 176 46 Q 196 46 199 66 L 218 196 Q 221 222 196 222 L 60 222 Q 35 222 38 196 L 57 66 Q 60 46 80 46 Z" fill="url(#skirt)"/>
+  <rect x="66" y="34" width="124" height="120" rx="24" fill="url(#top)"/>
+  <rect x="67.5" y="35.5" width="121" height="117" rx="22.5" fill="none" stroke="#FFFFFF" stroke-opacity=".35" stroke-width="3"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round">
+    <path d="M 100 110 C 102 86 112 70 132 58"/><path d="M 140 114 C 140 92 138 74 132 58"/>
+  </g>
+  <circle cx="98" cy="118" r="17" fill="#FFFFFF"/><circle cx="141" cy="122" r="16" fill="#FFFFFF"/>
+</svg>

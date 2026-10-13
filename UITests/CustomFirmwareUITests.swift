@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class CustomFirmwareUITests: CherryUITestCase {
     private func openCustomFirmware(_ scenario: String = "customfw") {
-        launch(scenario)
+        launch(scenario, experimental: ["customFirmware"])
         openSection("自定义固件")
         wait(for: "custom.installed")
     }

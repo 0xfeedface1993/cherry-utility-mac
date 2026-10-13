@@ -13,7 +13,7 @@ final class MenuBarUITests: CherryUITestCase {
         XCTAssertTrue(text("menubar.connection").contains("有线 USB"))
         XCTAssertTrue(text("menubar.firmware").contains("固件 0.1.1.7"))
         XCTAssertTrue(text("menubar.summary").contains("配置 2 · 波纹 · 亮度 全亮"))
-        XCTAssertEqual(panel.radioGroups["menubar.profile"].radioButtons["2"].value as? Int, 1)
+        XCTAssertEqual(panel.radioGroups["menubar.profile"].radioButtons["配置 2"].value as? Int, 1)
         XCTAssertTrue(text("menubar.effect.0").contains("已选中"))
         XCTAssertTrue(text("menubar.color.summary").contains("随机颜色"))
     }
@@ -22,10 +22,10 @@ final class MenuBarUITests: CherryUITestCase {
     func testPanelSwitchesProfile() {
         launch()
         let panel = openMenuBarPanel()
-        panel.radioGroups["menubar.profile"].radioButtons["1"].click()
+        panel.radioGroups["menubar.profile"].radioButtons["配置 1"].click()
         waitForText("menubar.summary", contains: "配置 1 · 放射")
         closeMenuBarPanel()
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         wait(for: "profile.current.0")
     }
 
@@ -43,7 +43,7 @@ final class MenuBarUITests: CherryUITestCase {
         waitUntil("速度应写到最快") { (self.element("menubar.speed").value as? String).map { $0.hasPrefix("4") } ?? (self.element("menubar.speed").value as? Int == 4) }
         closeMenuBarPanel()
 
-        openSection("设备信息")
+        openSection("概览")
         element("info.refresh").click()
         waitForText("info.effect", contains: "呼吸 · 速度 5 / 5")
         waitForText("info.brightness", contains: "中")
@@ -53,7 +53,7 @@ final class MenuBarUITests: CherryUITestCase {
     /// UI-43 面板「载入预设到当前配置档」把本地预设写入键盘。
     func testPanelAppliesPreset() {
         launch()
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         wait(for: "preset.empty")
         element("config.effect.12").click()
         window.radioGroups["config.brightness"].radioButtons["高"].click()
@@ -100,7 +100,7 @@ final class MenuBarUITests: CherryUITestCase {
         waitForText("menubar.battery", contains: "95%")
         selectMenuBarDevice("03200000")
         waitForText("menubar.battery", contains: "53%")
-        element("menubar.profile").radioButtons["1"].click()
+        element("menubar.profile").radioButtons["配置 1"].click()
         waitForText("menubar.summary", contains: "配置 1 · 放射")
         waitForDisappearance(element("menubar.configuring"))
         selectMenuBarDevice("03100000")
@@ -114,11 +114,11 @@ final class MenuBarUITests: CherryUITestCase {
         openMenuBarPanel()
         waitForText("menubar.summary", contains: "配置 2 · 波纹", timeout: 15)
         let profiles = element("menubar.profile")
-        profiles.radioButtons["1"].click()
+        profiles.radioButtons["配置 1"].click()
         wait(for: "menubar.configuring")
-        XCTAssertTrue(profiles.radioButtons["3"].isEnabled)
+        XCTAssertTrue(profiles.radioButtons["配置 3"].isEnabled)
         XCTAssertTrue(element("menubar.effect.2").isEnabled)
-        profiles.radioButtons["3"].click()
+        profiles.radioButtons["配置 3"].click()
         element("menubar.effect.2").click()
         waitForText("menubar.summary", contains: "配置 3 · 呼吸")
         XCTAssertTrue(element("menubar.brightness").isEnabled)

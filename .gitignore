@@ -32,3 +32,8 @@ xcuserdata/
 *~
 
 # 保留 Package.resolved、源码、测试、资源和共享配置
+
+# 官网构建产物与发布产物（由脚本生成）
+/Website/dist/
+/.release/
+/Design/mockups/out/

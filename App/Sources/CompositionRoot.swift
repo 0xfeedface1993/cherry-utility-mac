@@ -23,6 +23,9 @@ struct CompositionRoot {
     let diagnosticRuntime: DiagnosticsRuntime
     /// Simulation only: where the diagnostic save panel opens, so UI tests never type into the system panel.
     private let diagnosticSaveDirectory: URL?
+    /// Backing store of the `@Shared(.appStorage)` preferences. Simulation uses its own suite, reset on every launch,
+    /// so UI tests never change the real app's settings (both run under the same bundle identifier).
+    let preferences: UserDefaults
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let support = URL.applicationSupportDirectory.appending(path: "CherryUtility", directoryHint: .isDirectory)
@@ -49,6 +52,7 @@ struct CompositionRoot {
                 ?? FileManager.default.temporaryDirectory.appending(path: "CherryUtility-SimulationFirmware-\(UUID().uuidString)", directoryHint: .isDirectory)
             simulation = SimulationControls(hub: hub)
             diagnosticSaveDirectory = environment["CHERRY_DIAGNOSTIC_SAVE_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            preferences = Self.simulationPreferences(experimental: environment["CHERRY_EXPERIMENTAL"])
         } else {
             let hid = IOKitHIDService(loop: HIDEventLoop(diagnostics: diagnostics))
             discovery = hid
@@ -63,6 +67,7 @@ struct CompositionRoot {
             ], diagnostics: diagnostics)
             simulation = nil
             diagnosticSaveDirectory = nil
+            preferences = .standard
         }
 
         services = CoreServices(
@@ -77,8 +82,35 @@ struct CompositionRoot {
         )
     }
 
-    func install(into dependencies: inout DependencyValues) {
+    private static func simulationPreferences(experimental: String?) -> UserDefaults {
+        let suite = "online.odeployer.CherryUtility.simulation"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        defaults.removePersistentDomain(forName: suite)
+        // `CHERRY_EXPERIMENTAL=customFirmware` turns the experimental section on for UI tests that exercise it.
+        let flags = Set((experimental ?? "").split(separator: ",").map(String.init))
+        defaults.set(flags.contains("customFirmware"), forKey: "experimentalCustomFirmware")
+        return defaults
+    }
+
+    func install(into dependencies: inout DependencyValues, updates: UpdateController) {
         DiagnosticsComposition.install(diagnosticRuntime, saveDirectory: diagnosticSaveDirectory, into: &dependencies)
+        dependencies.defaultAppStorage = preferences
+        dependencies.appUpdateClient = AppUpdateClient(
+            snapshot: { await updates.snapshot },
+            setAutomaticallyChecks: { enabled in await updates.setAutomaticallyChecks(enabled) },
+            setAutomaticallyDownloads: { enabled in await updates.setAutomaticallyDownloads(enabled) },
+            checkForUpdates: { await updates.checkForUpdates() }
+        )
+        if simulation == nil {
+            dependencies.loginItemClient = LoginItemClient(
+                isEnabled: { await MainActor.run { LoginItem.isEnabled } },
+                setEnabled: { enabled in try await MainActor.run { try LoginItem.setEnabled(enabled) } }
+            )
+        } else {
+            // Never register the real login item from a UI test.
+            let state = LockIsolated(false)
+            dependencies.loginItemClient = LoginItemClient(isEnabled: { state.value }, setEnabled: { enabled in state.setValue(enabled) })
+        }
         let discovery = discovery
         let keySource = keySource
         let access = access

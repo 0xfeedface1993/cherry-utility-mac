@@ -6,7 +6,7 @@ final class ConfigurationUITests: CherryUITestCase {
     /// 写入中继续编辑并再次提交，控件保持可用，最后一批写完才清除状态。
     func testSlowSaveAllowsEditingAndQueuedSubmission() {
         launch("slow")
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         wait(for: "config.effect.2", timeout: 15)
         element("config.brightness").radioButtons["低"].click()
         element("savebar.save").click()
@@ -22,7 +22,7 @@ final class ConfigurationUITests: CherryUITestCase {
 
     private func openConfiguration() {
         launch()
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         wait(for: "profile.card.0")
     }
 
@@ -49,7 +49,7 @@ final class ConfigurationUITests: CherryUITestCase {
         waitForText("banner.success", contains: "已切换到配置 3")
         XCTAssertFalse(element("profile.current.1").exists)
 
-        openSection("设备信息")
+        openSection("概览")
         waitForText("info.activeProfile", contains: "配置 3")
         waitForText("info.effect", contains: "常亮")
 
@@ -102,7 +102,7 @@ final class ConfigurationUITests: CherryUITestCase {
         XCTAssertTrue(text("config.effect.18").contains("已选中"))
         XCTAssertTrue(text("config.color.summary").contains("#0099FF"))
 
-        openSection("设备信息")
+        openSection("概览")
         waitForText("info.effect", contains: "放射")
         waitForText("info.brightness", contains: "低")
         waitForText("info.color", contains: "#0099FF")
@@ -156,7 +156,7 @@ final class ConfigurationUITests: CherryUITestCase {
         element("savebar.save").click()
         waitForText("banner.success", contains: "已写入")
 
-        openSection("设备信息")
+        openSection("概览")
         waitForText("info.sleep", contains: "不休眠")
         waitForText("info.deepSleep", contains: deepSleep)
     }

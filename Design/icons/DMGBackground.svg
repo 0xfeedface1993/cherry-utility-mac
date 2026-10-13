@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400">
+  <!-- Finder window background for the installer DMG; icons sit at (165,200) and (495,200), 128 pt. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF6F7"/><stop offset="1" stop-color="#F3EEEC"/></linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.1" r="0.8"><stop offset="0" stop-color="#F2264E" stop-opacity=".14"/><stop offset="1" stop-color="#F2264E" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="660" height="400" fill="url(#bg)"/>
+  <rect width="660" height="400" fill="url(#glow)"/>
+  <text x="330" y="58" text-anchor="middle" font-family="SF Pro Display, -apple-system, PingFang SC, sans-serif" font-size="22" font-weight="700" fill="#1B1A19">安装 CHERRY Utility</text>
+  <text x="330" y="84" text-anchor="middle" font-family="SF Pro Text, -apple-system, PingFang SC, sans-serif" font-size="13" fill="#5A5552">把左边的图标拖到「应用程序」文件夹</text>
+  <g fill="none" stroke="#D3123F" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity=".85">
+    <path d="M 262 200 C 300 176 360 176 398 200" stroke-dasharray="2 12"/>
+    <path d="M 384 186 L 400 201 L 381 212"/>
+  </g>
+  <text x="330" y="352" text-anchor="middle" font-family="SF Pro Text, -apple-system, PingFang SC, sans-serif" font-size="11" fill="#8F8884">非官方工具 · 与 CHERRY 无关联 · odeployer.online/cherry-utility</text>
+</svg>

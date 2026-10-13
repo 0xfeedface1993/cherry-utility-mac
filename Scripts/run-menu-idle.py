@@ -11,7 +11,7 @@ def main():
     args=parser.parse_args();out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
     with tempfile.TemporaryDirectory(prefix='cherry-idle-',dir='/tmp') as temp:
         app=pathlib.Path(temp)/'CherryUtility.app';shutil.copytree(args.app.resolve(),app,symlinks=True)
-        info=app/'Contents/Info.plist';data=plistlib.loads(info.read_bytes());data['CFBundleIdentifier']='dev.local.cherry.utility.idleprofile';info.write_bytes(plistlib.dumps(data))
+        info=app/'Contents/Info.plist';data=plistlib.loads(info.read_bytes());data['CFBundleIdentifier']='online.odeployer.CherryUtility.idleprofile';info.write_bytes(plistlib.dumps(data))
         subprocess.run(['codesign','--force','--deep','--sign','-',str(app)],check=True,capture_output=True)
         binary=app/'Contents/MacOS/CherryUtility'
         env=os.environ.copy();env.update(CHERRY_SIMULATION='pixiu75',CHERRY_DIAGNOSTIC_MODE='profile',CHERRY_DIAGNOSTIC_DIR=str(out/'journal'),CHERRY_PRESET_DIR=str(pathlib.Path(temp)/'presets'))

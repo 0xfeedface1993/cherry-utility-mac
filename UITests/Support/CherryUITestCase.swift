@@ -8,15 +8,17 @@ class CherryUITestCase: XCTestCase {
     private(set) var app: XCUIApplication!
 
     /// Scenarios understood by the app: `pixiu75`, `empty`, `unsupported`, `denied`, `wireless`.
-    /// `nil` launches against real hardware.
+    /// `nil` launches against real hardware. `experimental` lists hidden features to turn on (`customFirmware`);
+    /// in simulation they live in a throwaway preferences suite, so the real app's settings are untouched.
     @discardableResult
-    func launch(_ scenario: String? = "pixiu75") -> XCUIApplication {
+    func launch(_ scenario: String? = "pixiu75", experimental: [String] = []) -> XCUIApplication {
         continueAfterFailure = false
         let environment = ProcessInfo.processInfo.environment
         let app = environment["CHERRY_PROFILE_APP"].map { XCUIApplication(url: URL(fileURLWithPath: $0)) } ?? XCUIApplication()
         if let scenario {
             app.launchEnvironment["CHERRY_SIMULATION"] = scenario
             app.launchEnvironment["CHERRY_PRESET_DIR"] = "/tmp/cherry-uitest-\(UUID().uuidString)"
+            app.launchEnvironment["CHERRY_EXPERIMENTAL"] = experimental.joined(separator: ",")
         }
         if let output = environment["CHERRY_PROFILE_OUTPUT"] {
             app.launchEnvironment["CHERRY_DIAGNOSTIC_MODE"] = "profile"
@@ -117,10 +119,11 @@ class CherryUITestCase: XCTestCase {
 
     // MARK: Navigation
 
+    /// Selects a section in the sidebar (`概览`, `灯光与配置档`, `按键测试`, `固件升级`, `自定义固件`).
     func openSection(_ title: String) {
-        let button = window.radioGroups["section.picker"].radioButtons[title]
-        XCTAssertTrue(button.waitForExistence(timeout: 5), "没有分区 \(title)")
-        button.click()
+        let item = element("section.\(title)", in: window)
+        XCTAssertTrue(item.waitForExistence(timeout: 5), "侧栏没有分区 \(title)")
+        item.click()
     }
 
     /// Buttons of a sheet / alert attached to the main window (SwiftUI alerts are sheets on macOS).

@@ -3,27 +3,28 @@ import XCTest
 /// UI-01…UI-05：启动、导航、空设备 / 未适配型号、窗口与菜单栏的生命周期。
 @MainActor
 final class LaunchAndNavigationUITests: CherryUITestCase {
-    /// UI-01 启动后侧边栏列出模拟键盘并自动选中，详情页标题为设备名。
+    /// UI-01 启动后侧栏顶部的设备卡片显示模拟键盘并自动选中，默认显示概览，窗口标题为当前分区。
     func testLaunchListsAndSelectsKeyboard() {
         launch()
-        let row = wait(for: "sidebar.keyboard")
-        XCTAssertTrue(text(of: row).contains("CHERRY MX PIXIU 75"))
-        XCTAssertTrue(text(of: row).contains("固件 0.1.1.7"))
-        XCTAssertTrue(window.title.contains("CHERRY MX PIXIU 75"))
-        XCTAssertEqual(window.radioGroups["section.picker"].radioButtons["设备信息"].value as? Int, 1, "默认显示设备信息")
+        let card = wait(for: "sidebar.keyboard")
+        XCTAssertTrue(text(of: card).contains("CHERRY MX PIXIU 75"))
+        XCTAssertTrue(text(of: card).contains("固件 0.1.1.7"))
+        wait(for: "info.model")
+        XCTAssertTrue(window.title.contains("概览"), "窗口标题应为当前分区，实际「\(window.title)」")
+        XCTAssertFalse(element("section.自定义固件").exists, "自定义固件默认隐藏")
     }
 
-    /// UI-02 分段控件可在四个功能区之间切换，每个区显示自己的内容。
+    /// UI-02 侧栏可在四个功能区之间切换，每个区显示自己的内容。
     func testSectionPickerNavigatesAllSections() {
         launch()
         wait(for: "info.model")
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         wait(for: "profile.card.0")
         openSection("按键测试")
         wait(for: "keytest.canvas")
         openSection("固件升级")
         wait(for: "firmware.current")
-        openSection("设备信息")
+        openSection("概览")
         wait(for: "info.model")
     }
 
@@ -42,7 +43,7 @@ final class LaunchAndNavigationUITests: CherryUITestCase {
         waitForText("info.model", contains: "未适配型号")
         XCTAssertTrue(text("info.vidpid").contains("0x046A / 0x0999"))
         XCTAssertFalse(element("info.battery").exists)
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         wait(for: "config.failed")
         openMenuBarPanel()
         wait(for: "menubar.unsupported")

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>CHERRY Utility for Mac（非官方）— 灯效、配置档、按键测试与固件升级</title>
+  <meta name="description" content="给 Mac 用户的 CHERRY 键盘工具：常驻菜单栏，切换灯效与配置档、测试按键、用官方升级包刷写固件。免费，原生 macOS 应用，支持自动更新。">
+  <meta name="theme-color" content="#D3123F">
+  <meta property="og:title" content="CHERRY Utility for Mac（非官方）">
+  <meta property="og:description" content="灯效、配置档、按键测试与固件升级，一个原生 macOS 应用。">
+  <meta property="og:image" content="assets/og.png">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="alternate" type="application/rss+xml" title="CHERRY Utility 更新" href="appcast.xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="site">
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="./"><img src="assets/icon-64.png" width="30" height="30" alt="">CHERRY Utility<span class="tag">Mac · 非官方</span></a>
+      <nav class="links" aria-label="页面导航">
+        <a href="#features">功能</a>
+        <a href="#guide">使用示例</a>
+        <a href="#devices">支持设备</a>
+        <a href="#changelog">更新日志</a>
+        <a href="#faq">常见问题</a>
+      </nav>
+      <a class="btn primary sm" href="{{DMG}}" data-download>
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>下载
+      </a>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <a class="eyebrow" href="#changelog"><b>{{VERSION}}</b>首个公开版本 · 支持应用内自动更新</a>
+        <h1>在 Mac 上，<br><em>好好设置</em>你的 CHERRY 键盘</h1>
+        <p class="lead">灯效、配置档、按键测试与固件升级——官方驱动只有 Windows 版，现在 Mac 上也有了。原生 macOS 应用，常驻菜单栏，随手切换灯光。</p>
+        <div class="ctas">
+          <a class="btn primary" href="{{DMG}}" data-download>
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>下载 macOS 版 · {{DMG_SIZE}}
+          </a>
+          <a class="btn secondary" href="#guide">查看使用示例
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+          </a>
+        </div>
+        <p class="meta"><span>免费</span><span>macOS {{MIN_OS}} 及以上</span><span>Apple 芯片与 Intel 通用</span><span>已通过 Apple 公证</span></p>
+        <div class="shot">
+          <picture><source srcset="assets/screens/overview-dark.webp" media="(prefers-color-scheme: dark)"><img class="main" src="assets/screens/overview-light.webp" width="1120" height="760" alt="CHERRY Utility 主窗口：概览页显示键盘灯光、电量、配置档和固件状态"></picture>
+          <picture><source srcset="assets/screens/menubar-dark.webp" media="(prefers-color-scheme: dark)"><img class="panel" src="assets/screens/menubar-light.webp" width="340" height="600" alt="菜单栏面板：切换配置档、灯效、亮度与颜色"></picture>
+        </div>
+      </div>
+    </div>
+
+    <section id="features">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="kicker">功能</div>
+          <h2>官方驱动能做的常用设置，<br>在 Mac 上一个不少</h2>
+          <p>所有修改都通过键盘自己的配置协议写入，拔下键盘接到其他电脑上同样生效。</p>
+        </div>
+        <div class="features">
+          <article class="feature">
+            <div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/><path d="M15 6.5h3"/></svg></div>
+            <h3>菜单栏常驻</h3>
+            <p>电量一眼可见。切换配置档、灯效、亮度和颜色不用打开窗口，关掉主窗口也一直在。</p>
+          </article>
+          <article class="feature">
+            <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3Z"/></svg></div>
+            <h3>灯光与配置档</h3>
+            <p>3 个板载配置档逐项编辑：11 种灯效、亮度、速度、颜色和休眠。修改先放在草稿里，确认后才写入。</p>
+          </article>
+          <article class="feature">
+            <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg></div>
+            <h3>本地预设</h3>
+            <p>把喜欢的灯光存成预设，载入任意配置档；导出 .cherryprofile 文件，分享给其他 Mac。</p>
+          </article>
+          <article class="feature">
+            <div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M7 14h10"/></svg></div>
+            <h3>按键测试</h3>
+            <p>在真实键位图上实时显示按下与已测按键，包括旋钮；统计最多同时按下的键数和事件间隔。</p>
+          </article>
+          <article class="feature">
+            <div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></div>
+            <h3>固件升级</h3>
+            <p>直接使用 CHERRY 官方升级包：校验 MD5 与 CRC 后通过 USB 刷写，键盘重启后读回核对。</p>
+          </article>
+          <article class="feature">
+            <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 10 4-1.7 7-5.6 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+            <h3>本地优先，不收集数据</h3>
+            <p>没有账号、没有统计上报。诊断记录只保存在本机，由你决定是否导出分享。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="guide">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="kicker">使用示例</div>
+          <h2>三分钟上手</h2>
+          <p>从安装到写入第一个灯效配置，跟着下面的步骤做就行。</p>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="text">
+              <div class="num">1</div>
+              <h3>安装并连接键盘</h3>
+              <p>下载 DMG，把 CHERRY Utility 拖进「应用程序」文件夹后打开。用 USB 线连接键盘，并把键盘拨到有线模式。</p>
+              <ul>
+                <li>插上后自动识别，菜单栏出现键帽图标和电量。</li>
+                <li>无线模式下只能读取接收器的基础信息；写入配置和升级固件需要有线连接。</li>
+              </ul>
+            </div>
+            <div class="media"><picture><source srcset="assets/screens/onboarding-dark.webp" media="(prefers-color-scheme: dark)"><img src="assets/screens/onboarding-light.webp" width="1120" height="760" alt="未连接键盘时的引导页面" loading="lazy"></picture></div>
+          </div>
+          <div class="step">
+            <div class="text">
+              <div class="num">2</div>
+              <h3>在菜单栏随手切换灯光</h3>
+              <p>点一下菜单栏的键帽图标：切换配置档 1 / 2 / 3，选择灯效，拖动亮度和速度，点一个颜色——改动立即生效。</p>
+              <ul>
+                <li>已保存的预设可以一键载入当前配置档。</li>
+                <li>主窗口关掉后，菜单栏图标仍然在。</li>
+              </ul>
+            </div>
+            <div class="media"><picture><source srcset="assets/screens/menubar-dark.webp" media="(prefers-color-scheme: dark)"><img class="narrow" src="assets/screens/menubar-light.webp" width="340" height="600" alt="菜单栏面板" loading="lazy"></picture></div>
+          </div>
+          <div class="step">
+            <div class="text">
+              <div class="num">3</div>
+              <h3>精细编辑配置档，确认后写入</h3>
+              <p>打开主窗口的「灯光与配置档」，点选要编辑的配置档。修改过的项目会标上橙点，底部提示还有几项没写入。</p>
+              <ul>
+                <li>点「写入键盘」或按 <span class="kbd">⌘S</span> 写入；不满意就点「放弃」。</li>
+                <li>写入时只发送改动的字段，写完会读回核对。</li>
+              </ul>
+            </div>
+            <div class="media"><picture><source srcset="assets/screens/lighting-dark.webp" media="(prefers-color-scheme: dark)"><img src="assets/screens/lighting-light.webp" width="1120" height="760" alt="灯光与配置档页面，底部显示未写入的修改" loading="lazy"></picture></div>
+          </div>
+          <div class="step">
+            <div class="text">
+              <div class="num">4</div>
+              <h3>测试每一个按键</h3>
+              <p>打开「按键测试」，第一次使用时按提示在「系统设置 › 隐私与安全性 › 输入监控」中允许 CHERRY Utility，然后逐个按键。</p>
+              <ul>
+                <li>测过的键变绿，按住的键高亮，旋钮也能测。</li>
+                <li>打开「屏蔽本应用快捷键」，测试时不会误触 <span class="kbd">⌘Q</span> 等快捷键。</li>
+              </ul>
+            </div>
+            <div class="media"><picture><source srcset="assets/screens/keytest-dark.webp" media="(prefers-color-scheme: dark)"><img src="assets/screens/keytest-light.webp" width="1120" height="760" alt="按键测试页面" loading="lazy"></picture></div>
+          </div>
+          <div class="step">
+            <div class="text">
+              <div class="num">5</div>
+              <h3>升级到最新固件</h3>
+              <p>「固件升级」会对比键盘当前版本和 CHERRY 官方目录中的最新版本。下载并校验升级包后点「开始升级」，大约 30 秒。</p>
+              <ul>
+                <li>升级期间保持有线连接，不要拔线或让 Mac 睡眠。</li>
+                <li>完成后键盘会重启，应用会读回 CRC 确认固件写入正确。</li>
+              </ul>
+            </div>
+            <div class="media"><picture><source srcset="assets/screens/firmware-dark.webp" media="(prefers-color-scheme: dark)"><img src="assets/screens/firmware-light.webp" width="1120" height="760" alt="固件升级页面，显示刷写进度" loading="lazy"></picture></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="devices">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="kicker">支持设备</div>
+          <h2>已适配的键盘</h2>
+          <p>只对已适配并在真机上验证过的型号开放写入和升级。</p>
+        </div>
+        <div class="table">
+          <div class="tr th"><span>型号</span><span>可用功能</span><span>状态</span></div>
+          <div class="tr"><b>MX PIXIU 75</b><span>全部功能：灯光、配置档、预设、按键测试、固件升级</span><span><span class="pill ok">真机验证</span></span></div>
+          <div class="tr"><b>其他 CHERRY 设备</b><span>显示 USB / HID 基本信息</span><span><span class="pill gray">只读</span></span></div>
+        </div>
+        <div class="notice">
+          <svg class="i" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+          <div>本应用是独立开发的非官方工具，与 CHERRY 无关联。写入配置和刷写固件都存在风险，请在了解后果的前提下使用；修改固件的「自定义固件」是实验性功能，默认隐藏。</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="changelog">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="kicker">更新日志</div>
+          <h2>版本历史</h2>
+          <p>应用会自动检查更新，也可以在「设置 › 更新」中手动检查。</p>
+        </div>
+        <div class="changelog">
+{{CHANGELOG}}
+        </div>
+      </div>
+    </section>
+
+    <section id="faq">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="kicker">常见问题</div>
+          <h2>你可能想知道</h2>
+        </div>
+        <div class="faq">
+          <details open>
+            <summary>这是 CHERRY 官方软件吗？</summary>
+            <p>不是。这是一个独立开发的非官方工具，给使用 Mac 的 CHERRY 键盘用户。它通过与官方 Windows 驱动相同的 USB 配置协议工作，但与 CHERRY 没有任何关联，也不代表 CHERRY。</p>
+          </details>
+          <details>
+            <summary>为什么需要「输入监控」权限？</summary>
+            <p>只有「按键测试」需要它：macOS 要求应用获得这个权限才能读取键盘发出的按键报文。应用不会记录或上传按键内容。不使用按键测试时可以不授权。</p>
+          </details>
+          <details>
+            <summary>升级固件安全吗？</summary>
+            <p>升级使用 CHERRY 官方发布的升级包。刷写前会校验文件 MD5 与固件 CRC，并确认升级包与键盘型号匹配；刷写后读回 CRC 核对。过程中请保持有线连接，不要拔线。</p>
+          </details>
+          <details>
+            <summary>「自定义固件」是什么？</summary>
+            <p>它可以在原厂固件上修改部分行为，例如固定 F 区的功能键逻辑。这是实验性功能，默认隐藏，需要在「设置 › 实验性功能」中确认风险后才会出现，并且随时可以恢复原厂固件。</p>
+          </details>
+          <details>
+            <summary>应用怎么更新？</summary>
+            <p>应用内置 Sparkle 自动更新：每天检查一次本站的更新源，新版本经过 EdDSA 签名和 Apple 公证后才会被安装。你也可以随时从本页面下载最新版本覆盖安装。</p>
+          </details>
+          <details>
+            <summary>会收集我的数据吗？</summary>
+            <p>不会。应用没有账号和统计上报，只在检查固件和应用更新时访问网络。诊断记录只保存在本机（默认 7 天、最多 32 MB），只有你手动导出后才会离开这台 Mac。</p>
+          </details>
+        </div>
+
+        <div class="cta-band">
+          <img src="assets/icon-256.png" width="84" height="84" alt="">
+          <h2>下载 CHERRY Utility for Mac</h2>
+          <p>版本 {{VERSION}} · macOS {{MIN_OS}} 及以上 · 通用二进制</p>
+          <a class="btn" href="{{DMG}}" data-download>
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>免费下载 · {{DMG_SIZE}}
+          </a>
+          <p class="small">SHA-256 <a href="{{DMG}}.sha256">校验文件</a> · <a href="appcast.xml">更新源</a></p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <p>CHERRY Utility for Mac 是独立开发的非官方工具，与 CHERRY 无关联。CHERRY 及相关产品名称是其各自所有者的商标。</p>
+      <div class="links">
+        <a href="{{DMG}}">下载</a>
+        <a href="#changelog">更新日志</a>
+        <a href="releases/latest.json">版本信息</a>
+        <a href="appcast.xml">更新源</a>
+      </div>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

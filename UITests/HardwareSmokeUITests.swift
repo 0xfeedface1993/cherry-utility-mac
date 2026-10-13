@@ -17,7 +17,7 @@ final class HardwareSmokeUITests: CherryUITestCase {
         waitForText("info.activeProfile", contains: "共 3 个", timeout: 15)
         XCTAssertFalse(text("info.battery").isEmpty)
 
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         for n in 0..<3 { wait(for: "profile.summary.\(n)", timeout: 15) }
         XCTAssertFalse(element("savebar.status").exists, "只读检查不应产生修改")
 
@@ -34,7 +34,7 @@ final class HardwareSmokeUITests: CherryUITestCase {
         waitForText("info.model", contains: "MX PIXIU 75", timeout: 15)
         let before = profileBlocks(name: "raw-before")
 
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         for n in 0..<3 { wait(for: "profile.summary.\(n)", timeout: 15) }
         // 改非当前配置档：键盘正在显示的灯效不变。
         let target = try XCTUnwrap((0..<3).first { element("profile.activate.\($0)").exists }, "没有非当前配置档")
@@ -71,7 +71,7 @@ final class HardwareSmokeUITests: CherryUITestCase {
             XCTAssertEqual(written[n], before[n], "写入只应影响配置 \(target + 1)，配置 \(n + 1) 被改动")
         }
 
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         edit(profile: target)
         let load = element("preset.load.\(backup)")
         reveal(load); load.click()
@@ -81,7 +81,7 @@ final class HardwareSmokeUITests: CherryUITestCase {
         waitForDisappearance(element("savebar.status"), timeout: 20)
         XCTAssertEqual(profileBlocks(name: "raw-restored"), before, "恢复后应与测试前逐字节一致；备份预设「\(backup)」已保留")
 
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         reveal(element("preset.menu.\(backup)"))
         choose("删除", fromMenu: "preset.menu.\(backup)")
         alertButton("删除").click()
@@ -98,7 +98,7 @@ final class HardwareSmokeUITests: CherryUITestCase {
         let panel = openMenuBarPanel()
         waitForText("menubar.summary", contains: "配置", timeout: 15)
         let profiles = panel.radioGroups["menubar.profile"]
-        let active = try XCTUnwrap(["1", "2", "3"].first { profiles.radioButtons[$0].value as? Int == 1 })
+        let active = try XCTUnwrap(["配置 1", "配置 2", "配置 3"].first { profiles.radioButtons[$0].value as? Int == 1 })
         let other = try XCTUnwrap(["1", "2", "3"].first { $0 != active })
         profiles.radioButtons[other].click()
         waitForText("menubar.summary", contains: "配置 \(other)", timeout: 15)
@@ -115,7 +115,7 @@ final class HardwareSmokeUITests: CherryUITestCase {
         closeMenuBarPanel()
 
         XCTAssertEqual(profileBlocks(name: "raw-restored"), before, "菜单栏改回后应与测试前逐字节一致")
-        openSection("设备信息")
+        openSection("概览")
         waitForText("info.activeProfile", contains: "配置 \(active)")
     }
 
@@ -143,7 +143,7 @@ final class HardwareSmokeUITests: CherryUITestCase {
     /// 面板在拔线前打开（打开面板后 XCUITest 要等数秒空闲），拔线的同时就能核对，不受插回快慢影响。
     func testRealKeyboardSurvivesUnplugAndReplug() throws {
         try requireOperator()
-        openSection("设备信息")
+        openSection("概览")
         waitForText("info.crc", contains: "0x", timeout: 15)
         let crc = text("info.crc")
         openRealKeyTest()
@@ -170,7 +170,7 @@ final class HardwareSmokeUITests: CherryUITestCase {
         waitForText("menubar.device", contains: "PIXIU 75", timeout: 15)
         waitForText("menubar.connection", contains: "有线", timeout: 15)
         closeMenuBarPanel()
-        openSection("设备信息")
+        openSection("概览")
         waitForText("info.connection", contains: "USB", timeout: 15)
         waitForText("info.crc", contains: "0x", timeout: 15)
         XCTAssertEqual(text("info.crc"), crc, "插回后重新读取的固件 CRC 应与拔出前一致")
@@ -278,7 +278,7 @@ final class HardwareSmokeUITests: CherryUITestCase {
 
     /// 设备信息页重新读取后，三个配置档（0x05）的原始十六进制；附在结果包里，便于失败时手动恢复。
     private func profileBlocks(name: String, file: StaticString = #filePath, line: UInt = #line) -> [String] {
-        openSection("设备信息")
+        openSection("概览")
         let refresh = element("info.refresh")
         waitUntil("刷新按钮可用", timeout: 15) { refresh.isEnabled }
         refresh.click()

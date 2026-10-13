@@ -1,0 +1,18 @@
+{
+  "product": "CHERRY Utility",
+  "baseURL": "https://odeployer.online/cherry-utility/",
+  "minimumSystemVersion": "15.0",
+  "releases": [
+    {
+      "version": "1.0.0",
+      "build": 1,
+      "date": null,
+      "notes": [
+        "首个公开版本：菜单栏常驻、设备概览、灯光与配置档、本地预设、按键测试与固件升级。",
+        "全新界面设计，支持浅色与深色模式。",
+        "内置 Sparkle 自动更新，更新包使用 EdDSA 签名并经过 Apple 公证。",
+        "自定义固件改为实验性功能，默认隐藏，可在「设置 › 实验性功能」中开启。"
+      ]
+    }
+  ]
+}

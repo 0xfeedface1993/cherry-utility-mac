@@ -37,7 +37,7 @@ final class MenuBarPerformanceUITests: CherryUITestCase {
             let began = Date().timeIntervalSince1970
             let panel = element("menubar.panel")
             let profile = index.isMultiple(of: 2) ? "1" : "2"
-            panel.radioGroups["menubar.profile"].radioButtons[profile].click()
+            panel.radioGroups["menubar.profile"].radioButtons["配置 " + profile].click()
             waitForText("menubar.summary", contains: "配置 " + profile)
             actions.append(["action": "profile", "ordinal": index, "start_epoch": began, "end_epoch": Date().timeIntervalSince1970])
         }

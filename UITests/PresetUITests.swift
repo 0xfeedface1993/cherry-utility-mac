@@ -5,7 +5,7 @@ import XCTest
 final class PresetUITests: CherryUITestCase {
     private func openConfiguration() {
         launch()
-        openSection("灯效与配置")
+        openSection("灯光与配置档")
         wait(for: "profile.card.0")
         wait(for: "preset.empty")
     }

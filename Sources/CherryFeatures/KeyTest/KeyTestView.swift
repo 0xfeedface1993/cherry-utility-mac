@@ -158,7 +158,9 @@ struct KeyTestView: View {
     private var tips: some View {
         Card("小提示") {
             VStack(alignment: .leading, spacing: 8) {
-                Text("• 旋钮的左转、按下、右转显示在右上角。")
+                if store.layout?.keys.contains(where: { $0.label == "⟲" }) == true {
+                    Text("• 旋钮的左转、按下、右转显示在右上角。")
+                }
                 Text("• Fn 由键盘内部处理，不产生 HID 事件，显示为虚线。")
                 Text("• 系统级快捷键（如 ⌘Space）无法屏蔽。")
             }

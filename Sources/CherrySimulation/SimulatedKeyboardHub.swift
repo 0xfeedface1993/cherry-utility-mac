@@ -14,6 +14,8 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
         public enum Device: String, Sendable { case pixiu75, unsupported, none }
 
         public var device: Device = .pixiu75
+        /// Which CHERRY product the `.pixiu75` device presents itself as (product ID, OTA interface, battery support).
+        public var model: KeyboardModel = .pixiu75
         public var accessDenied = false
         public var additionalDevice = false
         public var batteryPercent = 95
@@ -30,7 +32,9 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
         public init() {}
 
         /// `pixiu75` (default), `dual`, `slow`, `empty`, `unsupported`, `denied`, `wireless`, `customfw` (runs the synthetic
-        /// stock image that `SimulatedCustomFirmware` has a definition for).
+        /// stock image that `SimulatedCustomFirmware` has a definition for), and other models: `mx30s` (wired RGB board,
+        /// no battery / OTA), `nbl` (wired, no backlight), `pixiu98` (type-B effect table, no OTA), `receiver` (PIXIU 75
+        /// 2.4 GHz receiver).
         public static func named(_ name: String) -> Scenario {
             var s = Scenario()
             switch name {
@@ -45,10 +49,24 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
                 s.batteryPercent = 15
             case "customfw":
                 s.firmwareCRC = SimulatedCustomFirmware.stockCRC
+            case "mx30s": s.model = Self.model(0x0079); s.firmwareVersion = 0x0136
+            case "nbl": s.model = Self.model(0x0077); s.firmwareVersion = 0x0120
+            case "pixiu98": s.model = .pixiu98; s.firmwareVersion = 0x0113
+            case "receiver": s.model = Self.model(0x01E4); s.charging = false; s.batteryPercent = 64
             default: break
             }
             return s
         }
+
+        static func model(_ productID: UInt16) -> KeyboardModel {
+            guard let model = KeyboardModel.matching(vendorID: KeyboardModel.cherryVendorID, productID: productID) else {
+                preconditionFailure(String(format: "no catalog model for PID 0x%04X", productID))
+            }
+            return model
+        }
+
+        /// 2.4 GHz receivers report the wireless mode while plugged in over USB.
+        var reportsWireless: Bool { wireless || model.kind == .receiver }
     }
 
     public static let keyboardID = KeyboardID(vendorID: 0x046A, productID: 0x01E2, locationID: 0x0310_0000)
@@ -95,14 +113,15 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     private let deviceID: KeyboardID
     private let secondary: SimulatedKeyboardHub?
 
-    public init(scenario: Scenario = Scenario(), diagnostics: Diagnostics = .noop, keyboardID: KeyboardID = SimulatedKeyboardHub.keyboardID) {
-        deviceID = keyboardID
+    public init(scenario: Scenario = Scenario(), diagnostics: Diagnostics = .noop, keyboardID: KeyboardID? = nil) {
+        deviceID = keyboardID ?? KeyboardID(vendorID: Self.keyboardID.vendorID, productID: scenario.model.productID, locationID: Self.keyboardID.locationID)
         if scenario.additionalDevice {
             var secondScenario = scenario
             secondScenario.additionalDevice = false
             secondScenario.batteryPercent = 53
             secondScenario.charging = false
-            secondary = SimulatedKeyboardHub(scenario: secondScenario, diagnostics: diagnostics, keyboardID: Self.secondKeyboardID)
+            let secondID = KeyboardID(vendorID: Self.secondKeyboardID.vendorID, productID: scenario.model.productID, locationID: Self.secondKeyboardID.locationID)
+            secondary = SimulatedKeyboardHub(scenario: secondScenario, diagnostics: diagnostics, keyboardID: secondID)
         } else { secondary = nil }
         self.scenario = scenario
         self.diagnostics = diagnostics
@@ -110,7 +129,7 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
             attached: scenario.device != .none,
             releaseNumber: scenario.firmwareVersion,
             crc: scenario.firmwareCRC,
-            config: Self.capturedConfigurationSpace(),
+            config: Self.capturedConfigurationSpace(for: scenario.model),
             battery: scenario.batteryPercent,
             charging: scenario.charging
         )))
@@ -118,6 +137,16 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
 
     deinit {
         state.withLock { $0.reboot?.cancel() }
+    }
+
+    /// The captured space with every block's effect moved into `model`'s table (e.g. type-B numbering).
+    static func capturedConfigurationSpace(for model: KeyboardModel) -> [UInt8] {
+        var space = capturedConfigurationSpace()
+        guard let fallback = model.lightingEffects.first?.rawValue else { return space }
+        for n in 0..<model.profileCount where model.effect(space[n * 64 + 1] & ProfileConfig.effectMask) == nil {
+            space[n * 64 + 1] = fallback
+        }
+        return space
     }
 
     /// Configuration space read from a real PIXIU 75 on 2026-10-11 (active profile 1, three blocks).
@@ -229,14 +258,15 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
                     collections: [HIDCollectionSummary(usage: HIDUsage(page: 0xFF1C, usage: 0x92), inputReports: [4: 64], outputReports: [4: 64], featureReports: [:])]
                 ),
             ]
-            if !scenario.wireless {
+            if !scenario.wireless, scenario.model.ota != nil {
                 interfaces.append(HIDInterfaceSummary(
                     id: 3, usages: [HIDUsage(page: 0xFFEF, usage: 0x00)], maxInputReportSize: 64, maxOutputReportSize: 64, maxFeatureReportSize: 64,
                     collections: [HIDCollectionSummary(usage: HIDUsage(page: 0xFFEF, usage: 0x00), inputReports: [5: 64], outputReports: [5: 64], featureReports: [5: 64])]
                 ))
             }
+            let product = scenario.model == .pixiu75 ? "PIXIU 75" : scenario.model.name
             return [KeyboardSummary(
-                id: deviceID, product: "PIXIU 75", manufacturer: "CHERRY", serialNumber: nil,
+                id: deviceID, product: product, manufacturer: "CHERRY", serialNumber: nil,
                 transport: scenario.wireless ? "Bluetooth Low Energy" : "USB", releaseNumber: device.releaseNumber, interfaces: interfaces
             )] + additional
         }
@@ -314,13 +344,15 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
             case VendorCommand.writeConfig.rawValue where r[7] == VendorPacket.writeMarker && offset + length <= s.device.config.count:
                 s.device.config.replaceSubrange(offset..<offset + length, with: r[8..<8 + length])
                 s.writes += 1
-            case VendorCommand.readBattery.rawValue:
+            // Wired-only boards do not implement battery / status: they reject the command like an unknown one.
+            case VendorCommand.readBattery.rawValue where scenario.model.hasBattery:
                 reply[7] = 0
                 reply.replaceSubrange(8..<14, with: [UInt8(s.device.battery), s.device.charging ? 1 : 0, 0, 0, 0, 0])
-            case VendorCommand.readDeviceStatus.rawValue:
+            case VendorCommand.readDeviceStatus.rawValue where scenario.model.hasBattery:
                 reply[7] = 0
-                let mode: UInt8 = scenario.wireless ? 2 : 1
-                let block: [UInt8] = [0xAA, 0x55, 0, 0, 0x6A, 0x04, 0xE2, 0x01, 1, 0, mode, 0, 1, 0]
+                let mode: UInt8 = scenario.reportsWireless ? 2 : 1
+                let pid = scenario.model.productID
+                let block: [UInt8] = [0xAA, 0x55, 0, 0, 0x6A, 0x04, UInt8(pid & 0xFF), UInt8(pid >> 8), 1, 0, mode, 0, 1, 0]
                 reply.replaceSubrange(8..<8 + block.count, with: block)
             default:
                 reply[7] = 0xFF
@@ -462,16 +494,18 @@ final class SimulatedReportChannel: HIDReportChannel, Sendable {
 /// Firmware catalog with one release of the simulated model, served from memory.
 public struct SimulatedFirmwareCatalog: FirmwareCatalogPort, FirmwareDownloadPort {
     public let latestVersion: UInt16
+    private let catalogName: String
     private let updater: Data
 
     public init(model: KeyboardModel = .pixiu75, latestVersion: UInt16 = 0x0118) {
         self.latestVersion = latestVersion
+        catalogName = model.catalogName ?? "SIMULATED_\(String(format: "%04X", model.productID))"
         updater = SyntheticUpdater.updaterExe(for: model, version: latestVersion)
     }
 
     public func releases() async throws -> [FirmwareRelease] {
         let code = String(format: "%04X", latestVersion)
-        let name = KeyboardModel.pixiu75.catalogName + "_" + code
+        let name = catalogName + "_" + code
         return [
             FirmwareRelease(
                 name: name, deviceIndex: 0x33, versionCode: code,
@@ -480,7 +514,7 @@ public struct SimulatedFirmwareCatalog: FirmwareCatalogPort, FirmwareDownloadPor
                 md5: SyntheticUpdater.md5(updater), isForced: false
             ),
             FirmwareRelease(
-                name: KeyboardModel.pixiu75.catalogName + "_DONGLE_" + code, deviceIndex: 0x34, versionCode: code,
+                name: catalogName + "_DONGLE_" + code, deviceIndex: 0x34, versionCode: code,
                 versionName: "dongle", downloadURL: URL(string: "https://simulated.invalid/dongle.exe")!, md5: "00", isForced: false
             ),
         ]

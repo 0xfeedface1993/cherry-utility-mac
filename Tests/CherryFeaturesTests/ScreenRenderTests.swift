@@ -36,6 +36,42 @@ struct ScreenRenderTests {
         try await renderWindow(AppView(store: empty), size: CGSize(width: 1120, height: 760), appearance: appearance, name: "main-onboarding-\(suffix)") {}
     }
 
+    /// Other models (driver-derived capabilities): wired RGB board, no-backlight board, type-B PIXIU 98.
+    @Test(arguments: [UInt16(0x0079), 0x0077, 0x01E6])
+    func otherModels(productID: UInt16) async throws {
+        let keyboard = MultiModelFeatureFixtures.keyboard(productID)
+        let model = try #require(keyboard.model)
+        let snapshot = model.hasBattery ? VendorSnapshot.preview : MultiModelFeatureFixtures.wiredSnapshot
+        let release = model.catalogName.map {
+            FirmwareRelease(
+                name: $0 + "_0136", deviceIndex: 0, versionCode: "0136", versionName: "0.1.3.6",
+                downloadURL: URL(string: "https://example.invalid/\($0)_0136.exe")!, md5: "00", isForced: false
+            )
+        }
+        for section in [KeyboardFeature.Section.info, .configuration, .keyTest, .firmware] {
+            var state = AppFeature.State()
+            state.keyboards = [keyboard]
+            var detail = KeyboardFeature.State(keyboard: keyboard)
+            detail.section = section
+            if section == .firmware { detail.firmware.latest = .loaded(release) }
+            state.detail = detail
+            let store = Store(initialState: state) { AppFeature() } withDependencies: {
+                configure(&$0, keyboards: [keyboard])
+                $0.keyboardClient.vendorSnapshot = { _ in snapshot }
+                $0.firmwareClient.latestRelease = { _ in release }
+            }
+            let name = String(format: "model-%04X-\(section.fileName)", productID)
+            try await renderWindow(AppView(store: store), size: CGSize(width: 1120, height: 760), appearance: .aqua, name: name) {}
+        }
+        let store = Store(initialState: { var s = AppFeature.State(); s.keyboards = [keyboard]; return s }()) { AppFeature() } withDependencies: {
+            configure(&$0, keyboards: [keyboard])
+            $0.keyboardClient.vendorSnapshot = { _ in snapshot }
+        }
+        store.send(.task)
+        let panel = MenuBarPanel(store: store.scope(state: \.menuBar, action: \.menuBar), onOpenMainWindow: {}, onQuit: {})
+        try await renderView(panel, appearance: .aqua, name: String(format: "model-%04X-menubar", productID))
+    }
+
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func menuBarPanel(appearance: NSAppearance.Name) async throws {
         let store = makeStore(section: .info)
@@ -102,7 +138,7 @@ struct ScreenRenderTests {
             keyboards: { keyboards },
             updates: { AsyncStream { $0.yield(keyboards) } },
             vendorSnapshot: { _ in .preview },
-            battery: { _ in VendorSnapshot.preview.battery },
+            battery: { _ in try #require(VendorSnapshot.preview.battery) },
             firmwareStatus: { _ in DeviceFirmwareStatus(version: 0x0117, crc: 0xCFE1_A03E) }
         )
         d.firmwareClient = FirmwareClient(

@@ -77,16 +77,20 @@ public struct VendorSession: Sendable {
         try await profile(try await activeProfileNumber())
     }
 
-    /// Battery, status and the active profile only.
-    public func snapshot() async throws -> VendorSnapshot {
-        VendorSnapshot(battery: try await battery(), status: try await deviceStatus(), profile: try await activeProfile())
+    /// Battery, status and the active profile only (battery and status only when `wireless`).
+    public func snapshot(wireless: Bool = true) async throws -> VendorSnapshot {
+        VendorSnapshot(
+            battery: wireless ? try await battery() : nil,
+            status: wireless ? try await deviceStatus() : nil,
+            profile: try await activeProfile()
+        )
     }
 
-    /// Battery, status and every onboard profile.
-    public func snapshot(profileCount: Int) async throws -> VendorSnapshot {
+    /// Battery, status and every onboard profile (battery and status only when `wireless`).
+    public func snapshot(profileCount: Int, wireless: Bool = true) async throws -> VendorSnapshot {
         VendorSnapshot(
-            battery: try await battery(),
-            status: try await deviceStatus(),
+            battery: wireless ? try await battery() : nil,
+            status: wireless ? try await deviceStatus() : nil,
             configuration: try await configuration(profileCount: profileCount)
         )
     }
@@ -132,9 +136,12 @@ public struct VendorSession: Sendable {
     public func update(profile n: Int, with patch: ProfilePatch) async throws -> ProfileUpdate {
         let current = try await profile(n)
         let target = current.applying(patch)
-        guard let range = current.changedRange(to: target) else { return ProfileUpdate(config: current, written: false) }
+        let ranges = current.changedRanges(to: target)
+        guard !ranges.isEmpty else { return ProfileUpdate(config: current, written: false) }
         try await transaction {
-            try await write(Array(target[range]), at: n * ProfileConfig.blockSize + range.lowerBound)
+            for range in ranges {
+                try await write(Array(target[range]), at: n * ProfileConfig.blockSize + range.lowerBound)
+            }
         }
         let readBack = try await diagnostics.measure(.configurationReadBack) { try await profile(n) }
         return ProfileUpdate(config: readBack, written: true)

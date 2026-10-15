@@ -75,7 +75,7 @@ struct DeviceInfoView: View {
                 } else {
                     Badge("已断开", tone: .warning, systemImage: "cable.connector.slash")
                 }
-                Badge(store.vendor.value?.status.mode.displayName ?? store.keyboard.transportDescription, tone: .neutral, systemImage: "cable.connector")
+                Badge(store.vendor.value?.status?.mode.displayName ?? store.keyboard.transportDescription, tone: .neutral, systemImage: "cable.connector")
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
@@ -92,7 +92,8 @@ struct DeviceInfoView: View {
     }
 
     private var lighting: LitKeyboard.Lighting {
-        store.vendor.value.map { .init(profile: $0.profile) } ?? .init(color: nil, brightness: 0)
+        guard store.model?.hasLighting != false else { return .init(color: nil, brightness: 0) }
+        return store.vendor.value.map { .init(profile: $0.profile) } ?? .init(color: nil, brightness: 0)
     }
 
     // MARK: Tiles
@@ -100,20 +101,35 @@ struct DeviceInfoView: View {
     private var tiles: some View {
         Grid(horizontalSpacing: 12, verticalSpacing: 12) {
             GridRow {
-                StatTile(title: "电量", systemImage: batterySymbol) {
-                    LoadableView(loadable: store.vendor) { snapshot in
-                        HStack(spacing: 12) {
-                            RingGauge(fraction: Double(snapshot.battery.percent) / 100, tint: snapshot.battery.percent < 20 ? Theme.danger : Theme.success)
-                                .frame(width: 40, height: 40)
-                            Text("\(snapshot.battery.percent)").font(.title.weight(.bold)).monospacedDigit()
-                                + Text(" %").font(.callout).foregroundStyle(.secondary)
+                if store.model?.hasBattery == true {
+                    StatTile(title: "电量", systemImage: batterySymbol) {
+                        LoadableView(loadable: store.vendor) { snapshot in
+                            if let battery = snapshot.battery {
+                                HStack(spacing: 12) {
+                                    RingGauge(fraction: Double(battery.percent) / 100, tint: battery.percent < 20 ? Theme.danger : Theme.success)
+                                        .frame(width: 40, height: 40)
+                                    Text("\(battery.percent)").font(.title.weight(.bold)).monospacedDigit()
+                                        + Text(" %").font(.callout).foregroundStyle(.secondary)
+                                }
+                            } else {
+                                Text("—").font(.title2.weight(.bold)).foregroundStyle(.secondary)
+                            }
                         }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(store.vendor.summary { snapshot in
+                            snapshot.battery.map { "\($0.percent)%" + ($0.charging == .charging ? " 充电中" : "") } ?? "未知"
+                        })
+                        .accessibilityIdentifier("info.battery")
+                    } footer: {
+                        if let battery = store.vendor.value?.battery { chargingLabel(battery.charging) }
                     }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(store.vendor.summary { "\($0.battery.percent)%" + ($0.battery.charging == .charging ? " 充电中" : "") })
-                    .accessibilityIdentifier("info.battery")
-                } footer: {
-                    if let snapshot = store.vendor.value { chargingLabel(snapshot.battery.charging) }
+                } else {
+                    StatTile(title: "供电", systemImage: "cable.connector") {
+                        Text("USB").font(.title2.weight(.bold))
+                            .accessibilityIdentifier("info.power")
+                    } footer: {
+                        Text("有线键盘，没有电池")
+                    }
                 }
                 StatTile(title: "配置档", systemImage: "square.stack.3d.down.right") {
                     LoadableView(loadable: store.vendor) { snapshot in
@@ -128,29 +144,39 @@ struct DeviceInfoView: View {
                         .buttonStyle(.link)
                         .font(.caption)
                 }
-                StatTile(title: "灯效", systemImage: "lightbulb.led") {
-                    LoadableView(loadable: store.vendor) { snapshot in
-                        Text(effectName(snapshot.profile)).font(.title2.weight(.bold))
-                    }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(store.vendor.summary { "\(effectName($0.profile)) · 速度 \(LightingText.speed($0.profile.speed))" })
-                    .accessibilityIdentifier("info.effect")
-                } footer: {
-                    if let p = store.vendor.value?.profile {
-                        HStack(spacing: 5) {
-                            colorDot(p)
-                            Text("\(p.randomColor ? "随机颜色" : p.color.description) · 亮度 \(LightingText.brightness(p.brightness)) · 速度 \(LightingText.speed(p.speed))")
-                                .lineLimit(1)
+                if store.model?.hasLighting == true {
+                    StatTile(title: "灯效", systemImage: "lightbulb.led") {
+                        LoadableView(loadable: store.vendor) { snapshot in
+                            Text(effectName(snapshot.profile)).font(.title2.weight(.bold))
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(store.vendor.summary { "\(effectName($0.profile)) · 速度 \(LightingText.speed($0.profile.speed))" })
+                        .accessibilityIdentifier("info.effect")
+                    } footer: {
+                        if let p = store.vendor.value?.profile {
+                            HStack(spacing: 5) {
+                                if store.model?.hasColor == true { colorDot(p) }
+                                Text(lightingFooter(p)).lineLimit(1)
+                            }
                         }
                     }
-                }
-                StatTile(title: "休眠", systemImage: "moon.zzz") {
-                    LoadableView(loadable: store.vendor) { snapshot in
-                        Text(LightingText.sleep(seconds: snapshot.profile.sleepSeconds)).font(.title2.weight(.bold))
+                } else {
+                    StatTile(title: "灯效", systemImage: "lightbulb.slash") {
+                        Text("无背光").font(.title2.weight(.bold))
+                            .accessibilityIdentifier("info.effect")
+                    } footer: {
+                        Text("该型号没有可调灯光")
                     }
-                } footer: {
-                    if let p = store.vendor.value?.profile {
-                        Text("深度休眠 \(LightingText.deepSleep(minutes: p.deepSleepMinutes))")
+                }
+                if store.model?.hasSleepSettings == true {
+                    StatTile(title: "休眠", systemImage: "moon.zzz") {
+                        LoadableView(loadable: store.vendor) { snapshot in
+                            Text(LightingText.sleep(seconds: snapshot.profile.sleepSeconds)).font(.title2.weight(.bold))
+                        }
+                    } footer: {
+                        if let p = store.vendor.value?.profile {
+                            Text("深度休眠 \(LightingText.deepSleep(minutes: p.deepSleepMinutes))")
+                        }
                     }
                 }
             }
@@ -158,7 +184,12 @@ struct DeviceInfoView: View {
     }
 
     private var batterySymbol: String {
-        store.vendor.value?.battery.charging == .charging ? "battery.100percent.bolt" : "battery.75percent"
+        store.vendor.value?.battery?.charging == .charging ? "battery.100percent.bolt" : "battery.75percent"
+    }
+
+    private func lightingFooter(_ p: ProfileConfig) -> String {
+        let color = store.model?.hasColor == true ? (p.randomColor ? "随机颜色" : p.color.description) + " · " : ""
+        return color + "亮度 \(LightingText.brightness(p.brightness)) · 速度 \(LightingText.speed(p.speed))"
     }
 
     private func effectName(_ p: ProfileConfig) -> String {
@@ -181,16 +212,18 @@ struct DeviceInfoView: View {
         if store.updateAvailable == true, let release = store.latestRelease.value ?? nil {
             HStack(spacing: 14) {
                 IconTile(systemImage: "arrow.down.circle.fill")
+                let flashable = store.model?.canFlashFirmware == true
                 VStack(alignment: .leading, spacing: 2) {
                     Text("有新固件 \(release.versionName)").font(.headline)
-                    Text("当前 \(store.keyboard.firmwareVersion.description) · 来自 CHERRY 官方升级目录，刷写前会校验 MD5 与 CRC")
+                    Text("当前 \(store.keyboard.firmwareVersion.description) · "
+                         + (flashable ? "来自 CHERRY 官方升级目录，刷写前会校验 MD5 与 CRC" : "需用官方 Windows 升级程序升级"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
                 Button {
                     store.send(.delegate(.show(.firmware)))
                 } label: {
-                    Label("前往升级", systemImage: "chevron.right").labelStyle(.titleAndIcon)
+                    Label(flashable ? "前往升级" : "查看升级方式", systemImage: "chevron.right").labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("info.goFirmware")
@@ -208,13 +241,17 @@ struct DeviceInfoView: View {
     private var deviceRows: some View {
         GroupedRows {
             DetailRow("型号", id: "info.model", store.model?.name ?? "未适配型号（仅显示 USB 信息）")
+            if let model = store.model {
+                DetailRow("类型", id: "info.kind", "\(model.kindDescription) · \(model.lightingDescription)")
+                DetailRow("适配", id: "info.support", model.supportSummary)
+            }
             DetailRow("产品名", store.keyboard.product)
             DetailRow("制造商", store.keyboard.manufacturer.isEmpty ? "—" : store.keyboard.manufacturer)
             DetailRow("VID / PID", id: "info.vidpid", String(format: "0x%04X / 0x%04X", store.keyboard.id.vendorID, store.keyboard.id.productID))
             DetailRow("连接", id: "info.connection", "\(store.keyboard.transportDescription) · Location 0x\(String(format: "%08X", store.keyboard.id.locationID))")
-            if store.model != nil {
-                DetailRow("工作模式", id: "info.mode", summary: store.vendor.summary { $0.status.mode.displayName }) {
-                    LoadableView(loadable: store.vendor) { Text($0.status.mode.displayName) }
+            if store.model?.isWireless == true {
+                DetailRow("工作模式", id: "info.mode", summary: store.vendor.summary { $0.status?.mode.displayName ?? "—" }) {
+                    LoadableView(loadable: store.vendor) { Text($0.status?.mode.displayName ?? "—") }
                 }
             }
             if let serial = store.keyboard.serialNumber { DetailRow("序列号", serial) }
@@ -223,36 +260,50 @@ struct DeviceInfoView: View {
 
     private var profileRows: some View {
         GroupedRows {
-            DetailRow("背光亮度", id: "info.brightness", summary: store.vendor.summary { "\(LightingText.brightness($0.profile.brightness))（\($0.profile.brightness) / 4）" }) {
-                LoadableView(loadable: store.vendor) { Text("\(LightingText.brightness($0.profile.brightness))（\($0.profile.brightness) / 4）") }
-            }
-            DetailRow("灯效颜色", id: "info.color", summary: store.vendor.summary { $0.profile.randomColor ? "随机颜色" : $0.profile.color.description }) {
-                LoadableView(loadable: store.vendor) { snapshot in
-                    if snapshot.profile.randomColor { Text("随机颜色") } else { ColorSwatchLabel(color: snapshot.profile.color) }
-                }
-            }
-            DetailRow("一级休眠", id: "info.sleep", summary: store.vendor.summary { LightingText.sleep(seconds: $0.profile.sleepSeconds) }) {
-                LoadableView(loadable: store.vendor) { Text(LightingText.sleep(seconds: $0.profile.sleepSeconds)) }
-            }
-            DetailRow("二级休眠", id: "info.deepSleep", summary: store.vendor.summary { LightingText.deepSleep(minutes: $0.profile.deepSleepMinutes) }) {
-                LoadableView(loadable: store.vendor) { Text(LightingText.deepSleep(minutes: $0.profile.deepSleepMinutes)) }
-            }
+            if store.model?.hasLighting == true { lightingRows }
+            if store.model?.hasSleepSettings == true { sleepRows }
             DetailRow("回报率档位", id: "info.polling", summary: store.vendor.summary { LightingText.polling($0.profile) }) {
                 LoadableView(loadable: store.vendor) { Text(LightingText.polling($0.profile)) }
             }
             DetailRow("按键锁定", id: "info.keyLocks", summary: store.vendor.summary { keyLocks($0.profile) }) {
                 LoadableView(loadable: store.vendor) { Text(keyLocks($0.profile)) }
             }
-            DetailRow("指示灯颜色") {
-                LoadableView(loadable: store.vendor) { snapshot in
-                    HStack(spacing: 8) {
-                        ForEach(Array(snapshot.profile.indicatorColors.enumerated()), id: \.offset) { _, color in
-                            ColorSwatchLabel(color: color)
+            if store.model?.isWireless == true {
+                DetailRow("指示灯颜色") {
+                    LoadableView(loadable: store.vendor) { snapshot in
+                        HStack(spacing: 8) {
+                            ForEach(Array(snapshot.profile.indicatorColors.enumerated()), id: \.offset) { _, color in
+                                ColorSwatchLabel(color: color)
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var lightingRows: some View {
+            DetailRow("背光亮度", id: "info.brightness", summary: store.vendor.summary { "\(LightingText.brightness($0.profile.brightness))（\($0.profile.brightness) / 4）" }) {
+                LoadableView(loadable: store.vendor) { Text("\(LightingText.brightness($0.profile.brightness))（\($0.profile.brightness) / 4）") }
+            }
+            if store.model?.hasColor == true {
+                DetailRow("灯效颜色", id: "info.color", summary: store.vendor.summary { $0.profile.randomColor ? "随机颜色" : $0.profile.color.description }) {
+                    LoadableView(loadable: store.vendor) { snapshot in
+                        if snapshot.profile.randomColor { Text("随机颜色") } else { ColorSwatchLabel(color: snapshot.profile.color) }
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var sleepRows: some View {
+            DetailRow("一级休眠", id: "info.sleep", summary: store.vendor.summary { LightingText.sleep(seconds: $0.profile.sleepSeconds) }) {
+                LoadableView(loadable: store.vendor) { Text(LightingText.sleep(seconds: $0.profile.sleepSeconds)) }
+            }
+            DetailRow("二级休眠", id: "info.deepSleep", summary: store.vendor.summary { LightingText.deepSleep(minutes: $0.profile.deepSleepMinutes) }) {
+                LoadableView(loadable: store.vendor) { Text(LightingText.deepSleep(minutes: $0.profile.deepSleepMinutes)) }
+            }
     }
 
     private func keyLocks(_ p: ProfileConfig) -> String {
@@ -262,10 +313,14 @@ struct DeviceInfoView: View {
     private var firmwareRows: some View {
         GroupedRows {
             DetailRow("运行版本", id: "info.firmware", "\(store.keyboard.firmwareVersion)  (bcdDevice 0x\(String(format: "%04X", store.keyboard.releaseNumber)))")
-            DetailRow("镜像 CRC", id: "info.crc", summary: store.firmware.summary { String(format: "0x%08X", $0.crc) }) {
-                LoadableView(loadable: store.firmware) { status in
-                    Text(String(format: "0x%08X", status.crc)).monospaced()
+            if store.model?.ota != nil {
+                DetailRow("镜像 CRC", id: "info.crc", summary: store.firmware.summary { String(format: "0x%08X", $0.crc) }) {
+                    LoadableView(loadable: store.firmware) { status in
+                        Text(String(format: "0x%08X", status.crc)).monospaced()
+                    }
                 }
+            } else if let model = store.model {
+                DetailRow("升级方式", id: "info.firmwareFamily", model.firmwareFamily.displayName)
             }
             DetailRow("云端最新", id: "info.latest", summary: store.latestRelease.summary { release in
                 guard let release else { return "目录中没有该型号的固件" }
@@ -322,10 +377,14 @@ struct DeviceInfoView: View {
                     if let snapshot = store.vendor.value {
                         Divider()
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("0x1A 电量").font(.caption.bold())
-                            Text(hexString(snapshot.battery.raw)).font(.caption.monospaced())
-                            Text("0x1D 设备信息").font(.caption.bold())
-                            Text(hexString(snapshot.status.raw)).font(.caption.monospaced())
+                            if let battery = snapshot.battery {
+                                Text("0x1A 电量").font(.caption.bold())
+                                Text(hexString(battery.raw)).font(.caption.monospaced())
+                            }
+                            if let status = snapshot.status {
+                                Text("0x1D 设备信息").font(.caption.bold())
+                                Text(hexString(status.raw)).font(.caption.monospaced())
+                            }
                             ForEach(snapshot.configuration.profiles, id: \.profile) { profile in
                                 Text("0x05 配置档 \(profile.profile + 1)（偏移 0x\(String(format: "%03X", profile.profile * ProfileConfig.blockSize))）").font(.caption.bold())
                                 Text(hexString(profile.raw)).font(.caption.monospaced())

@@ -22,6 +22,7 @@ struct ConfigurationView: View {
                 } label: {
                     Label("导入预设", systemImage: "square.and.arrow.down")
                 }
+                .disabled(store.model?.editableFields.isEmpty == true)
                 .help("导入 .cherryprofile 预设文件")
                 Button {
                     store.send(.refresh)
@@ -78,15 +79,17 @@ struct ConfigurationView: View {
                     if let power = store.powerPresentation {
                         PowerEditor(presentation: power) { store.send(.edit($0)) }
                     }
-                    PresetLibraryView(
-                        presentation: store.presetPresentation,
-                        onNameChange: { store.presetName = $0 },
-                        onSave: { store.send(.savePresetTapped) },
-                        onLoad: { store.send(.loadPresetTapped($0)) },
-                        onExport: { store.send(.exportTapped($0)) },
-                        onDelete: { store.send(.deletePresetTapped($0)) },
-                        onImport: { store.send(.importTapped) }
-                    )
+                    if store.model?.editableFields.isEmpty == false {
+                        PresetLibraryView(
+                            presentation: store.presetPresentation,
+                            onNameChange: { store.presetName = $0 },
+                            onSave: { store.send(.savePresetTapped) },
+                            onLoad: { store.send(.loadPresetTapped($0)) },
+                            onExport: { store.send(.exportTapped($0)) },
+                            onDelete: { store.send(.deletePresetTapped($0)) },
+                            onImport: { store.send(.importTapped) }
+                        )
+                    }
                     if let details = store.detailsPresentation {
                         DetailsView(presentation: details)
                     }
@@ -207,16 +210,18 @@ struct LightingEditor: View {
                             .accessibilityIdentifier("config.speed.value")
                     }
                 }
-                GridRow {
-                    FieldLabel("颜色", dirty: presentation.dirty.contains(.color) || presentation.dirty.contains(.randomColor))
-                    ColorChooser(
-                        color: presentation.color, randomColor: presentation.randomColor, idPrefix: "config.color", isEnabled: presentation.isEnabled,
-                        onColor: { color in
-                            onEdit(.color(color))
-                            onEdit(.randomColor(false))
-                        },
-                        onRandom: { onEdit(.randomColor($0)) }
-                    )
+                if presentation.showsColor {
+                    GridRow {
+                        FieldLabel("颜色", dirty: presentation.dirty.contains(.color) || presentation.dirty.contains(.randomColor))
+                        ColorChooser(
+                            color: presentation.color, randomColor: presentation.randomColor, idPrefix: "config.color", isEnabled: presentation.isEnabled,
+                            onColor: { color in
+                                onEdit(.color(color))
+                                onEdit(.randomColor(false))
+                            },
+                            onRandom: { onEdit(.randomColor($0)) }
+                        )
+                    }
                 }
             }
             .card()

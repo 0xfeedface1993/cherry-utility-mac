@@ -175,7 +175,8 @@ public struct MenuBarFeature: Sendable {
                     state.errorMessage = "预设「\(preset.name)」来自其他型号"
                     return .none
                 }
-                return write(&state) { _ in .all(preset.settings) }
+                guard let model = state.model else { return .none }
+                return write(&state) { _ in ProfilePatch(preset.settings, fields: model.applicableFields(of: preset.settings)) }
             case .intentFinished(let requestID, let id, let result):
                 guard let request = state.requests.first(where: { $0.id == requestID && $0.keyboardID == id }) else { return .none }
                 state.requests.removeAll { $0.id == requestID }

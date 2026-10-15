@@ -61,8 +61,10 @@ struct ConfigurationBranchTests {
         #expect(updated[0x22] == 30 && updated[0x24] == 0x2C && updated[0x25] == 1)
         let edited: Set<Int> = [2, 3, 5, 0x22, 0x23, 0x24, 0x25]
         #expect((0..<64).filter { !edited.contains($0) }.allSatisfy { updated[$0] == raw[$0] })
-        #expect(config.changedRange(to: raw) == nil)
-        #expect(config.changedRange(to: updated) == 2..<0x26)
+        #expect(config.changedRanges(to: raw).isEmpty)
+        // Speed/brightness and the sleep timers are written separately; byte 5 kept its non-zero marker.
+        #expect(config.changedRanges(to: updated) == [2..<4, 0x22..<0x26])
+        #expect(config.changedRanges(to: updated, maxGap: 0x20) == [2..<0x26])
         #expect(config.applying(ProfilePatch(values, fields: [])) == raw)
         values.sleepSeconds = 0; values.deepSleepMinutes = 0
         #expect(values.normalized.sleepSeconds == 0 && values.normalized.deepSleepMinutes == 0)

@@ -11,9 +11,7 @@ extension KeyboardConfigurator {
         let model = try supportedModel(keyboard)
         for (profile, patch) in intent.patches {
             try Self.validate(profile: profile, model: model)
-            if patch.fields.contains(.effect), let effect = patch.values?.effect, model.effect(effect) == nil {
-                throw CherryError.unsupportedSetting("该型号不支持此灯效")
-            }
+            try Self.validate(patch: patch, model: model)
         }
         if let profile = intent.activeProfile { try Self.validate(profile: profile, model: model) }
         let operation: DiagnosticOperation = intent.patches.isEmpty && intent.activeProfile != nil ? .profileActivate : .configurationWrite
@@ -21,10 +19,9 @@ extension KeyboardConfigurator {
             try await session(keyboard, model) { session in
                 let current = try await session.configuration(profileCount: model.profileCount)
                 let expected = intent.applied(to: current)
-                let changed = intent.patches.keys.sorted().compactMap { profile -> (Int, [UInt8], Range<Int>)? in
-                    guard let source = current.profile(profile), let target = expected.profile(profile),
-                          let range = source.changedRange(to: target.raw) else { return nil }
-                    return (profile, target.raw, range)
+                let changed = intent.patches.keys.sorted().flatMap { profile -> [(Int, [UInt8], Range<Int>)] in
+                    guard let source = current.profile(profile), let target = expected.profile(profile) else { return [] }
+                    return source.changedRanges(to: target.raw).map { (profile, target.raw, $0) }
                 }
                 let activates = expected.activeProfile != current.activeProfile
                 guard !changed.isEmpty || activates else { return IntentResult(configuration: current, written: false) }

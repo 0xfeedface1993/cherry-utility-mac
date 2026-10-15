@@ -45,7 +45,7 @@ extension KeyboardClient: TestDependencyKey {
         keyboards: { [.preview] },
         updates: { AsyncStream { $0.yield([.preview]) } },
         vendorSnapshot: { _ in .preview },
-        battery: { _ in VendorSnapshot.preview.battery },
+        battery: { _ in try BatteryStatus(raw: [0x5F, 0x01, 0, 0, 0, 0]) },
         firmwareStatus: { _ in DeviceFirmwareStatus(version: 0, crc: 0xCFE1_A03E) }
     )
 }

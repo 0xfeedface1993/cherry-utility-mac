@@ -6,7 +6,7 @@ import Foundation
 /// key-function slots). Run the app with `CHERRY_SIMULATION=customfw` to start on this stock image.
 public enum SimulatedCustomFirmware {
     public static let stockVersion: UInt16 = 0x0117
-    public static let stockName = KeyboardModel.pixiu75.catalogName + "_0117"
+    public static let stockName = "MX_PIXIU75_WIRELESS_0117"
     public static let stockUpdater = SyntheticUpdater.updaterExe(for: .pixiu75, version: stockVersion)
     public static let stockImage = SyntheticUpdater.firmware(version: stockVersion)
 

@@ -15,11 +15,13 @@
   - 查看全部 3 个板载配置档，把任意一个设为当前配置档。
   - 编辑任意配置档的灯效、亮度、速度、颜色和两级休眠时间。修改先保存在草稿里，带「未写入」标记；点「写入键盘」后才写入，也可以放弃。
   - 本地预设：把编辑区保存为预设，之后载入任意配置档，支持导入/导出 `.cherryprofile` 文件。
-- **按键测试**：在 PIXIU 75 的真实键位图上实时显示按键状态，包括旋钮。同时统计已测键数、同时按下的最大键数，以及事件间隔。
+- **按键测试**：在型号的真实键位图上实时显示按键状态，包括旋钮（键位图由官方驱动的布局数据生成，共 44 种）。同时统计已测键数、同时按下的最大键数，以及事件间隔。
 - **固件升级**：从 Cherry 官方目录下载 Windows 升级包，校验 MD5 和 CRC，提取其中的 Telink 固件，直接通过 USB-HID 刷写。刷完后会读回 CRC 核对。
 - **自定义固件（实验性，默认隐藏）**：在「设置 › 实验性功能」中确认风险后才出现。在已知的原厂固件上选择要修改的功能（例如固定 F 区行为、去掉 Ctrl+Fn 误触、改 Fn 组合键的功能），保存成多个方案，生成补丁镜像后写入键盘并读回验证。页面会识别键盘当前运行的是原厂固件、哪个方案，还是方案的早期版本。可修改的内容由 `.cherryfw` 定义文件描述，详见下文「自定义固件」。
 
-已适配并在真机验证的型号：**MX PIXIU 75**（VID 0x046A / PID 0x01E2）。其他 Cherry 设备只显示 USB 信息；如果它的升级包也是同一套 Telink USB_OTA 格式，理论上也能刷写。
+已在真机验证的型号：**MX PIXIU 75**（VID 0x046A / PID 0x01E2）。
+
+按官方驱动适配、未经真机验证的型号：官方 CHERRY Utility 2.3.28.7 设备表中的全部键盘和 2.4G 接收器，共 60 个 PID（MX BOARD 1.0/1.1/2.0S/3.0S/3.1/8.0/10.0、G80-3000、MV 3.0、MX 2.0/3.0S/8.2/Xaga 无线、MX-LP 2.1/6.1、MX 8.3 / 8.3 Pro / 10.1、PIXIU 75 宝可梦、PIXIU 98/99、K63W Pro 等）。它们与 PIXIU 75 用同一套私有协议，所以都能读取信息、切换配置档、修改灯效；可修改的字段严格按官方驱动对该 PID 写入的字节限定（无背光型号只能切换配置档，有线型号没有电量与休眠）。固件刷写只开放给使用 Telink USB_OTA 升级包的 PIXIU 75 与 PIXIU 75 宝可梦版；其它型号的固件页显示官方最新版本和升级方式（Sonix ISP、Nordic 等）。证据与型号表见 [Docs/多型号兼容.md](Docs/多型号兼容.md)。鼠标、鼠标垫等其它 Cherry 设备只显示 USB 信息。
 
 - **设置**：登录时打开、启动时是否显示主窗口、菜单栏是否显示电量；应用内更新（Sparkle）；实验性功能。
 
@@ -69,7 +71,7 @@ cd Packages/CherryKit && swift test
 
 ### UI 测试与模拟模式
 
-`CherryUtilityUITests` 是 XCUITest 用例，覆盖启动导航、设备信息、灯效与配置、本地预设、菜单栏、按键测试、固件升级和热插拔，用例清单见 [Docs/UI测试用例.md](Docs/UI测试用例.md)。用例以环境变量 `CHERRY_SIMULATION=<场景>` 启动 App，场景有 `pixiu75`、`dual`、`slow`、`empty`、`unsupported`、`denied`、`wireless`、`customfw`（键盘运行合成的 0117 原厂镜像，配一份模拟固件定义，用于自定义固件页）。此时 App 连接的是内存里的模拟键盘：它实现了同样的 0xFF1C 私有协议和 Telink OTA 协议，支持热插拔和按键注入，所以不需要真键盘、输入监控权限或网络。模拟模式下菜单栏会多出「模拟设备」菜单，用于拔出和插入键盘。
+`CherryUtilityUITests` 是 XCUITest 用例，覆盖启动导航、设备信息、灯效与配置、本地预设、菜单栏、按键测试、固件升级和热插拔，用例清单见 [Docs/UI测试用例.md](Docs/UI测试用例.md)。用例以环境变量 `CHERRY_SIMULATION=<场景>` 启动 App，场景有 `pixiu75`、`dual`、`slow`、`empty`、`unsupported`、`denied`、`wireless`、`customfw`（键盘运行合成的 0117 原厂镜像，配一份模拟固件定义，用于自定义固件页），以及其它型号 `mx30s`（有线 RGB，无电量和 OTA）、`nbl`（有线无背光）、`pixiu98`（B 型灯效表）、`receiver`（PIXIU 75 接收器）。此时 App 连接的是内存里的模拟键盘：它实现了同样的 0xFF1C 私有协议和 Telink OTA 协议，支持热插拔和按键注入，所以不需要真键盘、输入监控权限或网络。模拟模式下菜单栏会多出「模拟设备」菜单，用于拔出和插入键盘。
 
 ```bash
 xcodebuild -project CherryUtility.xcodeproj -scheme CherryUtility -skipMacroValidation test -only-testing:CherryUtilityUITests

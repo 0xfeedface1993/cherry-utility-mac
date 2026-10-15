@@ -1,0 +1,529 @@
+{
+  "schema": 1,
+  "id": "mx-pixiu75-pokemon-wireless-0102",
+  "name": "MX PIXIU 75 Pokémon · 固件 0102",
+  "notes": "与 PIXIU 75 0117 同一套代码（gp 同为 0x80800，Win/Mac 模式变量 gp+0x157 的引用一一对应），数据表整体后移 0x9C0。补丁由 0117 定义移植：F 区固定与去掉 Ctrl+Fn 按反汇编找到对应指令并重算分支偏移；Fn 表与 Mac 媒体表为数据槽，原值与 0117 相同。所有位置的原始字节已与官方 0102 镜像逐字节核对，未经真机验证。表项格式与内部功能同 0117：类型 0x20 键码，0x30 Consumer usage（小端），0xA0 内部功能；0x50 只通知 Windows 版 CHERRY Utility。",
+  "firmware": {
+    "vendorID": "046A",
+    "productID": "01F7",
+    "versionCode": "0102",
+    "catalogName": "MX_PIXIU75_POKEMON_WIRELESS_0102",
+    "size": 168468,
+    "crc32": "2AA2487F"
+  },
+  "palettes": [
+    {
+      "id": "key-action",
+      "items": [
+        {
+          "id": "mute",
+          "name": "静音",
+          "bytes": "30 E2 00"
+        },
+        {
+          "id": "volume-down",
+          "name": "音量-",
+          "bytes": "30 EA 00"
+        },
+        {
+          "id": "volume-up",
+          "name": "音量+",
+          "bytes": "30 E9 00"
+        },
+        {
+          "id": "play-pause",
+          "name": "播放/暂停",
+          "bytes": "30 CD 00"
+        },
+        {
+          "id": "previous-track",
+          "name": "上一曲",
+          "bytes": "30 B6 00"
+        },
+        {
+          "id": "next-track",
+          "name": "下一曲",
+          "bytes": "30 B5 00"
+        },
+        {
+          "id": "display-brightness-up",
+          "name": "屏幕亮度+",
+          "bytes": "30 6F 00"
+        },
+        {
+          "id": "display-brightness-down",
+          "name": "屏幕亮度-",
+          "bytes": "30 70 00"
+        },
+        {
+          "id": "mission-control",
+          "name": "调度中心（Mission Control）",
+          "bytes": "30 9F 02"
+        },
+        {
+          "id": "launchpad",
+          "name": "启动台（Launchpad）",
+          "bytes": "30 A2 02"
+        },
+        {
+          "id": "search",
+          "name": "搜索（Spotlight）",
+          "bytes": "30 21 02"
+        },
+        {
+          "id": "consumer-02a0",
+          "name": "Consumer 0x02A0（原厂 Mac F11 取值）",
+          "bytes": "30 A0 02"
+        },
+        {
+          "id": "browser-home",
+          "name": "浏览器主页",
+          "bytes": "30 23 02"
+        },
+        {
+          "id": "my-computer",
+          "name": "我的电脑",
+          "bytes": "30 94 01"
+        },
+        {
+          "id": "calculator",
+          "name": "计算器",
+          "bytes": "30 92 01"
+        },
+        {
+          "id": "mail",
+          "name": "邮件",
+          "bytes": "30 8A 01"
+        },
+        {
+          "id": "backlight-toggle",
+          "name": "背光开关",
+          "bytes": "A0 40 00"
+        },
+        {
+          "id": "backlight-up",
+          "name": "背光亮度+",
+          "bytes": "A0 05 00"
+        },
+        {
+          "id": "backlight-down",
+          "name": "背光亮度-",
+          "bytes": "A0 06 00"
+        },
+        {
+          "id": "effect-speed-down",
+          "name": "灯效速度-",
+          "bytes": "A0 07 00"
+        },
+        {
+          "id": "effect-speed-up",
+          "name": "灯效速度+",
+          "bytes": "A0 08 00"
+        },
+        {
+          "id": "effect-next",
+          "name": "切换灯效",
+          "bytes": "A0 41 00"
+        },
+        {
+          "id": "cherry-utility",
+          "name": "通知 CHERRY Utility（Windows 软件打开官网）",
+          "bytes": "A0 50 00"
+        },
+        {
+          "id": "none",
+          "name": "无功能",
+          "bytes": "A0 00 00"
+        },
+        {
+          "id": "f1",
+          "name": "F1",
+          "bytes": "20 00 3A"
+        },
+        {
+          "id": "f2",
+          "name": "F2",
+          "bytes": "20 00 3B"
+        },
+        {
+          "id": "f3",
+          "name": "F3",
+          "bytes": "20 00 3C"
+        },
+        {
+          "id": "f4",
+          "name": "F4",
+          "bytes": "20 00 3D"
+        },
+        {
+          "id": "f5",
+          "name": "F5",
+          "bytes": "20 00 3E"
+        },
+        {
+          "id": "f6",
+          "name": "F6",
+          "bytes": "20 00 3F"
+        },
+        {
+          "id": "f7",
+          "name": "F7",
+          "bytes": "20 00 40"
+        },
+        {
+          "id": "f8",
+          "name": "F8",
+          "bytes": "20 00 41"
+        },
+        {
+          "id": "f9",
+          "name": "F9",
+          "bytes": "20 00 42"
+        },
+        {
+          "id": "f10",
+          "name": "F10",
+          "bytes": "20 00 43"
+        },
+        {
+          "id": "f11",
+          "name": "F11",
+          "bytes": "20 00 44"
+        },
+        {
+          "id": "f12",
+          "name": "F12",
+          "bytes": "20 00 45"
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "frow",
+      "name": "F 区行为",
+      "detail": "原厂固件里 Ctrl+Fn 切换 Fn Lock、Fn+Enter 切换 Win/Mac，两者都会掉电保存，所以 F 区时而需要按 Fn、时而不用。"
+    },
+    {
+      "id": "win",
+      "name": "Win 模式 F1–F12 功能",
+      "detail": "启用「F 区固定」后，Win 模式下单按 F1–F12 触发这里的功能，Fn+F 键输出 F1–F12。未启用时，是否需要按 Fn 取决于 Fn Lock。"
+    },
+    {
+      "id": "mac",
+      "name": "Mac 模式 F1–F12 功能",
+      "detail": "启用「F 区固定」后，Mac 模式下单按 F1–F12 触发这里的功能，Fn+F 键输出 F1–F12。未启用时，是否需要按 Fn 取决于 Fn Lock。"
+    }
+  ],
+  "options": [
+    {
+      "id": "frow.fixed",
+      "group": "frow",
+      "name": "F 区固定：单按功能，Fn+F 输出 F1–F12",
+      "detail": "Win 和 Mac 模式下都固定为单按触发功能、Fn+F 输出 F1–F12，不再受 Fn Lock 影响。由 PIXIU 75 0117 的已验证补丁移植，未经真机验证。",
+      "stability": "experimental",
+      "values": [
+        {
+          "id": "on",
+          "name": "启用",
+          "edits": [
+            {
+              "offset": "0x027A4",
+              "original": "03 C5 4A 01",
+              "replacement": "0B 65 60 15"
+            },
+            {
+              "offset": "0x027A8",
+              "original": "63 02 05 60",
+              "replacement": "63 12 05 60"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "frow.no-ctrl-fn-lock",
+      "group": "frow",
+      "name": "去掉 Ctrl+Fn 切换 Fn Lock",
+      "detail": "Fn 紧挨右 Ctrl，按 Ctrl 组合键时容易误触；去掉后按 Ctrl+Fn 不再切换 Fn Lock，也不会写入 flash。由 PIXIU 75 0117 的已验证补丁移植，未经真机验证。",
+      "stability": "experimental",
+      "values": [
+        {
+          "id": "on",
+          "name": "启用",
+          "edits": [
+            {
+              "offset": "0x1E32C",
+              "original": "5B F4 27 BA",
+              "replacement": "6F F0 9F FA"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "win.f1",
+      "group": "win",
+      "name": "F1",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB31",
+        "original": "30 E2 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f2",
+      "group": "win",
+      "name": "F2",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB35",
+        "original": "30 EA 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f3",
+      "group": "win",
+      "name": "F3",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB39",
+        "original": "30 E9 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f4",
+      "group": "win",
+      "name": "F4",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB3D",
+        "original": "A0 40 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f5",
+      "group": "win",
+      "name": "F5",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB41",
+        "original": "A0 05 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f6",
+      "group": "win",
+      "name": "F6",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB45",
+        "original": "A0 06 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f7",
+      "group": "win",
+      "name": "F7",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB49",
+        "original": "A0 07 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f8",
+      "group": "win",
+      "name": "F8",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB4D",
+        "original": "A0 08 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f9",
+      "group": "win",
+      "name": "F9",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB51",
+        "original": "A0 50 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f10",
+      "group": "win",
+      "name": "F10",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB55",
+        "original": "30 23 02",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f11",
+      "group": "win",
+      "name": "F11",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB59",
+        "original": "30 94 01",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "win.f12",
+      "group": "win",
+      "name": "F12",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB5D",
+        "original": "A0 41 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f1",
+      "group": "mac",
+      "name": "F1",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB99",
+        "original": "30 E2 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f2",
+      "group": "mac",
+      "name": "F2",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FB9D",
+        "original": "30 EA 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f3",
+      "group": "mac",
+      "name": "F3",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FBA1",
+        "original": "30 E9 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f4",
+      "group": "mac",
+      "name": "F4",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FBA5",
+        "original": "A0 40 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f5",
+      "group": "mac",
+      "name": "F5",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FBA9",
+        "original": "A0 05 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f6",
+      "group": "mac",
+      "name": "F6",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FBAD",
+        "original": "A0 06 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f7",
+      "group": "mac",
+      "name": "F7",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FBB1",
+        "original": "A0 07 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f8",
+      "group": "mac",
+      "name": "F8",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FBB5",
+        "original": "A0 08 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f9",
+      "group": "mac",
+      "name": "F9",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FBB9",
+        "original": "A0 00 00",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f10",
+      "group": "mac",
+      "name": "F10",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FBBD",
+        "original": "30 21 02",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f11",
+      "group": "mac",
+      "name": "F11",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FBC1",
+        "original": "30 A0 02",
+        "palette": "key-action"
+      }
+    },
+    {
+      "id": "mac.f12",
+      "group": "mac",
+      "name": "F12",
+      "stability": "experimental",
+      "slot": {
+        "offset": "0x1FBC5",
+        "original": "A0 41 00",
+        "palette": "key-action"
+      }
+    }
+  ]
+}

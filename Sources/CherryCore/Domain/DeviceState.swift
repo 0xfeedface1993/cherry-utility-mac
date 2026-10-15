@@ -63,7 +63,8 @@ public struct DeviceStatusBlock: Equatable, Sendable {
 ///
 /// Layout, from CHERRY Utility's `sub_4fd620` (decode), `sub_53bfb0` / `sub_4ed810` (lighting write) and the
 /// basic-settings writer at `0x500f2a`:
-/// - `[1]` effect (raw value of the model's effect table), `[2]` brightness 0…4, `[3]` speed stored as `4 - speed`,
+/// - `[1]` effect (raw value of the model's effect table; bits 6–7 belong to another setting on the PIXIU 99, so only
+///   the low 6 bits are read and written), `[2]` brightness 0…4, `[3]` speed stored as `4 - speed`,
 ///   `[4]` effect direction/parameter, `[5]` random colour (0 = fixed, non-zero = random), `[6…8]` RGB
 /// - `[0x16]` key-lock bits, `[0x19…0x21]` three RGB triplets (indicator colours on models that have them)
 /// - `[0x22…0x23]` first-stage sleep in seconds, `[0x24…0x25]` deep sleep in minutes (0 = never)
@@ -89,6 +90,8 @@ public struct ProfileConfig: Equatable, Sendable {
     public static let pollingRates = [125, 250, 500, 1000, 2000, 4000, 8000]
     /// Writes never touch bytes past this offset (the driver's basic-settings writer stops here too).
     public static let writableLength = 0x38
+    /// Every effect value of every driver table is below 0x40; the PIXIU 99 driver ORs another field into bits 6–7.
+    public static let effectMask: UInt8 = 0x3F
 
     public let profile: Int
     public let raw: [UInt8]
@@ -99,7 +102,7 @@ public struct ProfileConfig: Equatable, Sendable {
         raw = Array(b.prefix(Self.blockSize))
     }
 
-    public var lightingEffect: UInt8 { raw[1] }
+    public var lightingEffect: UInt8 { raw[1] & Self.effectMask }
     /// 0…4, the 5-step backlight slider.
     public var brightness: Int { Int(raw[2]) }
     /// 0…4; stored on the device as `4 - speed`.
@@ -132,7 +135,7 @@ public struct ProfileConfig: Equatable, Sendable {
         var b = raw
         for field in patch.fields {
             switch field {
-            case .effect: b[1] = values.effect
+            case .effect: b[1] = raw[1] & ~Self.effectMask | values.effect & Self.effectMask
             case .brightness: b[2] = UInt8(values.brightness)
             case .speed: b[3] = UInt8(4 - values.speed)
             // Keep the device's own non-zero marker (0xFF on stock firmware) when the flag stays on.
@@ -146,12 +149,19 @@ public struct ProfileConfig: Equatable, Sendable {
         return b
     }
 
-    /// Smallest contiguous byte range that differs between this block and `other` (nil if identical).
-    public func changedRange(to other: [UInt8]) -> Range<Int>? {
+    /// Runs of differing bytes, merged across gaps of at most `maxGap` unchanged bytes, so a write never spans the
+    /// unrelated bytes between two settings (e.g. lighting at 1…8 and sleep at 0x22…0x25).
+    public func changedRanges(to other: [UInt8], maxGap: Int = 2) -> [Range<Int>] {
         let n = min(raw.count, other.count, Self.writableLength)
-        guard let first = (0..<n).first(where: { raw[$0] != other[$0] }),
-              let last = (0..<n).last(where: { raw[$0] != other[$0] }) else { return nil }
-        return first..<last + 1
+        var ranges: [Range<Int>] = []
+        for i in 0..<n where raw[i] != other[i] {
+            if let last = ranges.last, i - last.upperBound <= maxGap {
+                ranges[ranges.count - 1] = last.lowerBound..<i + 1
+            } else {
+                ranges.append(i..<i + 1)
+            }
+        }
+        return ranges
     }
 
     public static func pollingRate(index: Int) -> Int? {
@@ -186,18 +196,19 @@ public struct KeyboardConfiguration: Equatable, Sendable {
 }
 
 public struct VendorSnapshot: Equatable, Sendable {
-    public let battery: BatteryStatus
-    public let status: DeviceStatusBlock
+    /// nil for wired-only models, which are not asked for battery (0x1A) or status (0x1D).
+    public let battery: BatteryStatus?
+    public let status: DeviceStatusBlock?
     public let configuration: KeyboardConfiguration
 
-    public init(battery: BatteryStatus, status: DeviceStatusBlock, configuration: KeyboardConfiguration) {
+    public init(battery: BatteryStatus?, status: DeviceStatusBlock?, configuration: KeyboardConfiguration) {
         self.battery = battery
         self.status = status
         self.configuration = configuration
     }
 
     /// Snapshot holding only the active profile.
-    public init(battery: BatteryStatus, status: DeviceStatusBlock, profile: ProfileConfig) {
+    public init(battery: BatteryStatus?, status: DeviceStatusBlock?, profile: ProfileConfig) {
         self.init(battery: battery, status: status, configuration: try! KeyboardConfiguration(activeProfile: profile.profile, profiles: [profile]))
     }
 

@@ -201,7 +201,7 @@ struct DiagnosticOriginTests {
         }
         try await Task.sleep(for: .milliseconds(20))
         await DiagnosticOrigin.$current.withValue(.deviceInfo) { await first.close() }
-        await try second.value.close()
+        try await second.value.close()
         recorder.expectClosedSpans()
         for operation in [DiagnosticOperation.channelHeld, .channelOpen] {
             #expect(recorder.finished(operation).map(\.context.origin).sorted { $0.rawValue < $1.rawValue } == [.deviceInfo, .menuBar])

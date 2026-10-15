@@ -320,7 +320,10 @@ public struct ConfigurationFeature: Sendable {
                     state.banner = Banner(message: "预设「\(preset.name)」来自其他型号，无法载入", isError: true)
                     return .none
                 }
-                state.editor?.replaceDraft(with: preset.settings)
+                if let editor = state.editor, let model = state.model {
+                    // Only the fields this model can store; e.g. a wired board keeps its own (unused) sleep bytes.
+                    state.editor?.replaceDraft(with: model.applying(preset.settings, onto: editor.draft))
+                }
                 state.banner = Banner(
                     message: state.hasUnsavedChanges
                         ? "已载入预设「\(preset.name)」，点击「写入键盘」后生效"

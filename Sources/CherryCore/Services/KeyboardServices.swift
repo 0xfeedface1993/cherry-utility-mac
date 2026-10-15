@@ -33,12 +33,14 @@ public struct KeyboardInspector: Sendable {
     func vendorSnapshotImpl(of keyboard: KeyboardSummary) async throws -> VendorSnapshot {
         let model = try supportedModel(keyboard)
         return try await withChannel(channels, keyboard: keyboard.id, usagePage: model.vendorUsagePage, reportID: model.vendorReportID) {
-            try await VendorSession(channel: $0, reportID: model.vendorReportID, diagnostics: diagnostics).snapshot(profileCount: model.profileCount)
+            try await VendorSession(channel: $0, reportID: model.vendorReportID, diagnostics: diagnostics)
+                .snapshot(profileCount: model.profileCount, wireless: model.hasBattery)
         }
     }
 
     func batteryImpl(of keyboard: KeyboardSummary) async throws -> BatteryStatus {
         let model = try supportedModel(keyboard)
+        guard model.hasBattery else { throw CherryError.unsupportedSetting("\(model.name) 是有线键盘，没有电量") }
         return try await withChannel(channels, keyboard: keyboard.id, usagePage: model.vendorUsagePage, reportID: model.vendorReportID) {
             try await VendorSession(channel: $0, reportID: model.vendorReportID, diagnostics: diagnostics).battery()
         }
@@ -46,8 +48,9 @@ public struct KeyboardInspector: Sendable {
 
     func firmwareStatusImpl(of keyboard: KeyboardSummary) async throws -> DeviceFirmwareStatus {
         let model = try supportedModel(keyboard)
-        return try await withChannel(channels, keyboard: keyboard.id, usagePage: model.otaUsagePage, reportID: model.otaReportID) {
-            try await FirmwareFlasher(channel: $0, reportID: model.otaReportID, diagnostics: diagnostics).readFirmwareStatus()
+        guard let ota = model.ota else { throw CherryError.unsupportedSetting("\(model.name) 的固件不走 Telink OTA 接口") }
+        return try await withChannel(channels, keyboard: keyboard.id, usagePage: ota.usagePage, reportID: ota.reportID) {
+            try await FirmwareFlasher(channel: $0, reportID: ota.reportID, diagnostics: diagnostics).readFirmwareStatus()
         }
     }
 }
@@ -90,9 +93,7 @@ public struct KeyboardConfigurator: Sendable {
     func updateImpl(profile n: Int, on keyboard: KeyboardSummary, patch: ProfilePatch) async throws -> ProfileUpdate {
         let model = try supportedModel(keyboard)
         try Self.validate(profile: n, model: model)
-        if patch.fields.contains(.effect), let effect = patch.values?.effect, model.effect(effect) == nil {
-            throw CherryError.unsupportedSetting(String(format: "%@ 不支持灯效值 0x%02X", model.name, effect))
-        }
+        try Self.validate(patch: patch, model: model)
         guard !patch.isEmpty else {
             return ProfileUpdate(config: try await session(keyboard, model) { try await $0.profile(n) }, written: false)
         }
@@ -109,6 +110,17 @@ public struct KeyboardConfigurator: Sendable {
     static func validate(profile n: Int, model: KeyboardModel) throws {
         guard (0..<model.profileCount).contains(n) else {
             throw CherryError.unsupportedSetting("\(model.name) 只有 \(model.profileCount) 个配置档")
+        }
+    }
+
+    /// Only fields whose bytes the official driver writes for this product ID, and only effects of its table.
+    static func validate(patch: ProfilePatch, model: KeyboardModel) throws {
+        let unsupported = patch.fields.subtracting(model.editableFields)
+        guard unsupported.isEmpty else {
+            throw CherryError.unsupportedSetting("\(model.name) 不支持修改 " + unsupported.map(\.rawValue).sorted().joined(separator: "、"))
+        }
+        if patch.fields.contains(.effect), let effect = patch.values?.effect, model.effect(effect) == nil {
+            throw CherryError.unsupportedSetting(String(format: "%@ 不支持灯效值 0x%02X", model.name, effect))
         }
     }
 
@@ -195,7 +207,8 @@ public struct FirmwareUpdateService: Sendable {
     }
 
     public static func latestRelease(for model: KeyboardModel, in releases: [FirmwareRelease]) -> FirmwareRelease? {
-        let prefix = model.catalogName + "_"
+        guard let catalogName = model.catalogName else { return nil }
+        let prefix = catalogName + "_"
         return releases
             .filter { $0.name.hasPrefix(prefix) && $0.name.dropFirst(prefix.count).allSatisfy(\.isNumber) }
             .max { ($0.version ?? FirmwareVersion(code: 0)) < ($1.version ?? FirmwareVersion(code: 0)) }

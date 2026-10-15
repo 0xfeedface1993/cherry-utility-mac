@@ -25,6 +25,8 @@ struct LightingPresentation: Equatable {
     let isEffectDirty: Bool
     let effectName: String
     let isCustomEffect: Bool
+    /// Single-colour backlights have no colour row.
+    let showsColor: Bool
     let brightness: Int
     let speed: Int
     let randomColor: Bool
@@ -82,15 +84,16 @@ extension ConfigurationFeature.State {
         return ProfileTabsPresentation(
             items: (0..<profileCount).map { n in
                 let config = configuration?.profile(n)
+                let lit = model?.hasLighting != false
                 return .init(
                     id: n,
                     title: "配置 \(n + 1)",
-                    summary: config.map { "\(model?.effectName($0.lightingEffect) ?? "") · \(LightingText.brightness($0.brightness))" } ?? "—",
+                    summary: config.map { lit ? "\(model?.effectName($0.lightingEffect) ?? "") · \(LightingText.brightness($0.brightness))" : "无背光" } ?? "—",
                     isActive: activeProfile == n,
                     isSelected: selectedProfile == n,
                     isActivating: activatingProfile == n,
                     swatch: config.flatMap { $0.randomColor ? nil : $0.color },
-                    hasSwatch: config != nil
+                    hasSwatch: config != nil && lit
                 )
             },
             isEnabled: isConnected && keyboard.canConfigure
@@ -98,7 +101,7 @@ extension ConfigurationFeature.State {
     }
 
     var lightingPresentation: LightingPresentation? {
-        guard let editor else { return nil }
+        guard let editor, model?.hasLighting == true else { return nil }
         let draft = editor.draft
         var effects = self.effects.map { EffectOption(id: $0.rawValue, name: $0.name, symbol: $0.symbol, isSelected: $0.rawValue == draft.effect) }
         if model?.effect(draft.effect) == nil {
@@ -109,7 +112,8 @@ extension ConfigurationFeature.State {
             effects: effects,
             isEffectDirty: editor.dirty.contains(.effect),
             effectName: model?.effectName(draft.effect) ?? "",
-            isCustomEffect: draft.effect == 8,
+            isCustomEffect: model?.effect(draft.effect)?.isCustom == true,
+            showsColor: model?.hasColor == true,
             brightness: draft.brightness,
             speed: draft.speed,
             randomColor: draft.randomColor,
@@ -120,7 +124,7 @@ extension ConfigurationFeature.State {
     }
 
     var powerPresentation: PowerPresentation? {
-        guard let editor else { return nil }
+        guard let editor, model?.hasSleepSettings == true else { return nil }
         return PowerPresentation(
             sleepSeconds: editor.draft.sleepSeconds, deepSleepMinutes: editor.draft.deepSleepMinutes,
             dirty: editor.dirty, isEnabled: canEdit
@@ -134,12 +138,14 @@ extension ConfigurationFeature.State {
     /// Read-only fields of the selected block that this app does not edit.
     var detailsPresentation: DeviceDetailsPresentation? {
         guard let config = selectedConfig else { return nil }
-        return DeviceDetailsPresentation(rows: [
+        var rows: [DeviceDetailsPresentation.Row] = [
             .init(title: "回报率档位", value: LightingText.polling(config)),
             .init(title: "按键锁定", value: config.keyLocks.isEmpty ? "无" : config.keyLocks.map(\.description).joined(separator: "、")),
-            .init(title: "灯效参数", value: String(format: "方向/参数 0x%02X", config.direction)),
-            .init(title: "指示灯颜色", value: config.indicatorColors.map(\.description).joined(separator: " ")),
-        ])
+        ]
+        if model?.hasLighting != false { rows.append(.init(title: "灯效参数", value: String(format: "方向/参数 0x%02X", config.direction))) }
+        // Indicator colours (pairing / mode LEDs) only exist on wireless boards.
+        if model?.isWireless != false { rows.append(.init(title: "指示灯颜色", value: config.indicatorColors.map(\.description).joined(separator: " "))) }
+        return DeviceDetailsPresentation(rows: rows)
     }
 
     var presetPresentation: PresetLibraryPresentation {

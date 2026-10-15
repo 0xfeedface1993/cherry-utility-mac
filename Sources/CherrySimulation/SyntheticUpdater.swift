@@ -51,11 +51,13 @@ public enum SyntheticUpdater {
         return fw
     }
 
+    /// A .NET USB_OTA updater for `model` (models without an OTA interface get the Telink one, which they reject).
     public static func updaterExe(for model: KeyboardModel, version: UInt16) -> Data {
+        let ota = model.ota ?? .telink
         var param = [UInt8](repeating: 0xFF, count: 128)
-        let ids = String(format: "%04X%04X%02d", model.vendorID, model.productID, model.otaReportID)
+        let ids = String(format: "%04X%04X%02d", model.vendorID, model.productID, ota.reportID)
         param.replaceSubrange(64..<64 + ids.utf8.count, with: Array(ids.utf8))
-        let page = String(format: "%04X", model.otaUsagePage)
+        let page = String(format: "%04X", ota.usagePage)
         param.replaceSubrange(80..<80 + page.utf8.count, with: Array(page.utf8))
 
         let image = firmware(version: version)

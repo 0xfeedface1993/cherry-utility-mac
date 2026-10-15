@@ -55,7 +55,12 @@ public struct FirmwareFeature: Sendable {
         }
 
         public var canFlash: Bool {
-            isConnected && !isBusy && package.value != nil && incompatibilities.isEmpty
+            flashUnsupportedReason == nil && isConnected && !isBusy && package.value != nil && incompatibilities.isEmpty
+        }
+
+        /// Models whose official updater is not Telink USB OTA can only be checked for updates here.
+        public var flashUnsupportedReason: String? {
+            keyboard.model?.firmwareFamily.unsupportedFlashReason
         }
     }
 
@@ -111,7 +116,7 @@ public struct FirmwareFeature: Sendable {
                 return .none
 
             case .downloadTapped:
-                guard let release = state.latest.value ?? nil, !state.isBusy else { return .none }
+                guard let release = state.latest.value ?? nil, !state.isBusy, state.flashUnsupportedReason == nil else { return .none }
                 state.package = .loading
                 return .run(origin: .firmware) { send in
                     await send(.packageLoaded(Result { try await client.download(release) }))
@@ -119,7 +124,7 @@ public struct FirmwareFeature: Sendable {
                 .cancellable(id: CancelID.package, cancelInFlight: true)
 
             case .importTapped:
-                guard !state.isBusy else { return .none }
+                guard !state.isBusy, state.flashUnsupportedReason == nil else { return .none }
                 state.isImporting = true
                 return .none
 

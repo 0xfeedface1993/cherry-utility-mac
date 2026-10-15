@@ -10,10 +10,14 @@ struct FirmwareView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 versions
-                StepIndicator(titles: ["获取升级包", "校验 MD5 / CRC", "刷写固件", "重启并读回验证"], current: step)
-                    .card(padding: 14)
-                packageBox
-                flashBox
+                if let reason = store.flashUnsupportedReason {
+                    unsupportedBox(reason)
+                } else {
+                    StepIndicator(titles: ["获取升级包", "校验 MD5 / CRC", "刷写固件", "重启并读回验证"], current: step)
+                        .card(padding: 14)
+                    packageBox
+                    flashBox
+                }
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 20)
@@ -27,7 +31,7 @@ struct FirmwareView: View {
                 } label: {
                     Label("选择本地升级包…", systemImage: "folder")
                 }
-                .disabled(store.package.isLoading || store.isBusy)
+                .disabled(store.package.isLoading || store.isBusy || store.flashUnsupportedReason != nil)
                 .help("选择从 CHERRY 官网下载的升级包（.exe）")
             }
         }
@@ -77,7 +81,9 @@ struct FirmwareView: View {
                     .accessibilityIdentifier("firmware.latest")
                 }
                 if let release = store.latest.value ?? nil {
-                    Text("\(release.name) · 从官方 Windows 升级包中提取，在 Mac 上直接刷写")
+                    Text(store.flashUnsupportedReason == nil
+                         ? "\(release.name) · 从官方 Windows 升级包中提取，在 Mac 上直接刷写"
+                         : "\(release.name) · 官方 Windows 升级程序")
                         .font(.caption).foregroundStyle(.secondary)
                         .frame(maxWidth: 260, alignment: .leading)
                 }
@@ -90,25 +96,53 @@ struct FirmwareView: View {
                     }
                 }
             }
-            HStack(spacing: 10) {
-                Button {
-                    store.send(.downloadTapped)
-                } label: {
-                    Label("下载并校验云端升级包", systemImage: "icloud.and.arrow.down")
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("firmware.download")
-                .disabled((store.latest.value ?? nil) == nil || store.package.isLoading || store.isBusy)
-                Button {
-                    store.send(.importTapped)
-                } label: {
-                    Label("选择本地升级包…", systemImage: "folder")
-                }
-                .accessibilityIdentifier("firmware.import")
-                .disabled(store.package.isLoading || store.isBusy)
-            }
+            if store.flashUnsupportedReason == nil { flashSourceButtons }
         }
         .card(padding: 20)
+    }
+
+    private var flashSourceButtons: some View {
+        HStack(spacing: 10) {
+            Button {
+                store.send(.downloadTapped)
+            } label: {
+                Label("下载并校验云端升级包", systemImage: "icloud.and.arrow.down")
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("firmware.download")
+            .disabled((store.latest.value ?? nil) == nil || store.package.isLoading || store.isBusy)
+            Button {
+                store.send(.importTapped)
+            } label: {
+                Label("选择本地升级包…", systemImage: "folder")
+            }
+            .accessibilityIdentifier("firmware.import")
+            .disabled(store.package.isLoading || store.isBusy)
+        }
+    }
+
+    /// Non-Telink models: what the official updater is and where to get it.
+    private func unsupportedBox(_ reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                IconTile(systemImage: "exclamationmark.shield")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("本工具不能刷写这个型号").font(.headline)
+                    Text("升级方式：\(store.keyboard.model?.firmwareFamily.displayName ?? "未知")")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("firmware.family")
+                }
+            }
+            Text(reason).font(.callout).fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("firmware.unsupported")
+            if let release = store.latest.value ?? nil {
+                Link(destination: release.downloadURL) {
+                    Label("下载官方升级程序 \(release.name).exe（Windows）", systemImage: "arrow.down.circle")
+                }
+                .accessibilityIdentifier("firmware.officialLink")
+            }
+        }
+        .card(padding: 16)
     }
 
     private func isNewer(_ release: FirmwareRelease) -> Bool {

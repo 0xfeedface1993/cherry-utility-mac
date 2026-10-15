@@ -71,7 +71,7 @@ public struct MenuBarPanel: View {
                         onColor: { store.send(.setColor($0)) },
                         onRandom: { store.send(.setRandomColor) }
                     )
-                    if !store.presets.isEmpty {
+                    if !store.presets.isEmpty, lighting.showsLighting {
                         PresetMenu(presets: store.presets, isEnabled: lighting.isEnabled) { store.send(.applyPreset($0)) }
                     }
                 } else if store.model == nil {
@@ -159,8 +159,10 @@ struct StatusHeader: View {
                 }
                 Spacer(minLength: 4)
                 if isLoading { ProgressView().controlSize(.mini) }
-                BatteryRing(percent: presentation.batteryPercent, isCharging: presentation.isCharging)
-                    .accessibilityIdentifier("menubar.battery")
+                if presentation.showsBattery {
+                    BatteryRing(percent: presentation.batteryPercent, isCharging: presentation.isCharging)
+                        .accessibilityIdentifier("menubar.battery")
+                }
             }
             if let lighting = presentation.lightingSummary {
                 Label(lighting, systemImage: "light.max").font(.caption).foregroundStyle(.secondary)
@@ -220,20 +222,24 @@ struct QuickLightingControls: View {
                 .disabled(!presentation.isProfileEnabled)
                 .animation(.easeInOut(duration: 0.18), value: presentation.profiles)
             }
-            section("灯效") {
-                EffectGrid(options: presentation.effects, columns: 4, compact: true, idPrefix: "menubar.effect", isEnabled: presentation.isEnabled, onSelect: onEffect)
-            }
-            section("亮度") {
-                BrightnessPicker(value: presentation.brightness, id: "menubar.brightness", isEnabled: presentation.isEnabled, onChange: onBrightness)
-            }
-            section("速度") {
-                SpeedSlider(value: presentation.speed, id: "menubar.speed", isEnabled: presentation.isEnabled, onChange: onSpeed)
-            }
-            section("颜色") {
-                ColorChooser(
-                    color: presentation.color, randomColor: presentation.randomColor, showsPicker: false, idPrefix: "menubar.color",
-                    isEnabled: presentation.isEnabled, onColor: onColor, onRandom: { if $0 { onRandom() } }
-                )
+            if presentation.showsLighting {
+                section("灯效") {
+                    EffectGrid(options: presentation.effects, columns: 4, compact: true, idPrefix: "menubar.effect", isEnabled: presentation.isEnabled, onSelect: onEffect)
+                }
+                section("亮度") {
+                    BrightnessPicker(value: presentation.brightness, id: "menubar.brightness", isEnabled: presentation.isEnabled, onChange: onBrightness)
+                }
+                section("速度") {
+                    SpeedSlider(value: presentation.speed, id: "menubar.speed", isEnabled: presentation.isEnabled, onChange: onSpeed)
+                }
+                if presentation.showsColor {
+                    section("颜色") {
+                        ColorChooser(
+                            color: presentation.color, randomColor: presentation.randomColor, showsPicker: false, idPrefix: "menubar.color",
+                            isEnabled: presentation.isEnabled, onColor: onColor, onRandom: { if $0 { onRandom() } }
+                        )
+                    }
+                }
             }
         }
     }

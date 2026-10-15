@@ -89,7 +89,9 @@ public struct DeviceInfoFeature: Sendable {
                     if !state.vendor.isLoading { state.pendingConfiguration = [] }
                     state.vendor = .loading
                 }
-                if state.firmware.value == nil { state.firmware = .loading }
+                // Only Telink USB OTA models expose the interface the firmware CRC is read from.
+                let readsFirmware = model.ota != nil
+                if readsFirmware, state.firmware.value == nil { state.firmware = .loading }
                 state.refreshError = nil
                 let revision = state.configurationRevision
                 state.loadGeneration &+= 1
@@ -101,13 +103,13 @@ public struct DeviceInfoFeature: Sendable {
                         let span = diagnostics.begin(.refresh)
                         await TraceContext.$current.withValue(span.context) {
                             let vendor = await Result { try await keyboardClient.vendorSnapshot(keyboard) }
-                            let firmware = await Result { try await keyboardClient.firmwareStatus(keyboard) }
+                            let firmware = readsFirmware ? await Result { try await keyboardClient.firmwareStatus(keyboard) } : nil
                             if Task.isCancelled { span.finish(error: CancellationError()); return }
                             if case .failure(let error) = vendor { span.finish(error: error) }
                             else if case .failure(let error) = firmware { span.finish(error: error) }
                             else { span.finish() }
                             await send(.vendorLoaded(vendor, revision: revision, generation: generation))
-                            await send(.firmwareLoaded(firmware, keyboard: keyboard.id, generation: generation))
+                            if let firmware { await send(.firmwareLoaded(firmware, keyboard: keyboard.id, generation: generation)) }
                         }
                     }
                     .cancellable(id: CancelID.refresh, cancelInFlight: true),
@@ -120,7 +122,7 @@ public struct DeviceInfoFeature: Sendable {
                 )
 
             case .batteryTick:
-                guard state.isConnected, state.keyboard.model != nil, !state.vendor.isLoading,
+                guard state.isConnected, state.keyboard.model?.hasBattery == true, !state.vendor.isLoading,
                       state.vendor.value != nil else { return .none }
                 let keyboard = state.keyboard
                 return .run(origin: .deviceInfo) { send in

@@ -249,7 +249,7 @@ struct OnboardingView: View {
                 }
                 .frame(maxWidth: 720)
                 .padding(.top, 8)
-                Text("已适配 MX PIXIU 75 · 其他 CHERRY 设备显示 USB 信息")
+                Text("MX PIXIU 75 已在真机验证 · 其余 \(KeyboardModel.all.count - 1) 款 CHERRY 键盘与接收器按官方驱动适配")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

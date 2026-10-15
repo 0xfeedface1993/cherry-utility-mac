@@ -442,3 +442,54 @@ struct PIXIU75DefinitionTests {
         try media.image.validate()
     }
 }
+
+/// Golden check of the PIXIU 75 Pokémon definition (ported from 0117) against the official 0102 updater, when it has been
+/// extracted next to the project (`CHEERY-Utilty/extracted/pixiu75-pokemon/`). Not verified on hardware.
+@Suite("自定义固件：PIXIU 75 宝可梦 0102 定义")
+struct PIXIU75PokemonDefinitionTests {
+    static let definitionFile = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("../../../../App/Resources/FirmwareDefinitions/MX_PIXIU75_POKEMON_WIRELESS_0102.cherryfw").standardizedFileURL
+    static let updater = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("../../../../../extracted/pixiu75-pokemon/MX_PIXIU75_POKEMON_WIRELESS_0102.exe").standardizedFileURL
+
+    static var available: Bool {
+        FileManager.default.fileExists(atPath: definitionFile.path) && FileManager.default.fileExists(atPath: updater.path)
+    }
+
+    static func definitions() throws -> (pokemon: FirmwareDefinition, pixiu75: FirmwareDefinition) {
+        (
+            try FirmwareDefinition.decode(Data(contentsOf: definitionFile), source: "MX_PIXIU75_POKEMON_WIRELESS_0102.cherryfw"),
+            try FirmwareDefinition.decode(Data(contentsOf: PIXIU75DefinitionTests.definitionFile), source: "MX_PIXIU75_WIRELESS_0117.cherryfw")
+        )
+    }
+
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: definitionFile.path)))
+    func mirrorsThePIXIU75Definition() throws {
+        let (pokemon, pixiu75) = try Self.definitions()
+        #expect(pokemon.applies(to: .pixiu75Pokemon) && !pokemon.applies(to: .pixiu75))
+        #expect(pokemon.firmware.crc == 0x2AA2_487F && pokemon.firmware.version == FirmwareVersion(code: 0x0102))
+        #expect(pokemon.options.map(\.id) == pixiu75.options.map(\.id))
+        #expect(pokemon.options.allSatisfy { $0.stability == .experimental })
+    }
+
+    @Test(.enabled(if: available))
+    func matchesTheOfficialImageAndBuilds() throws {
+        let package = try FirmwareUpdateService.makePackage(
+            data: try Data(contentsOf: Self.updater), source: .localFile(Self.updater), expectedMD5: "D6BC70A1492AD8D4BD98A4900FB57E80"
+        )
+        let stock = package.image
+        #expect(stock.productID == 0x01F7 && stock.usagePage == 0xFFEF && stock.reportID == 5 && stock.firmware.count == 168_468)
+        let (definition, _) = try Self.definitions()
+        #expect(FirmwarePatcher.mismatches(of: definition, in: stock).isEmpty)
+
+        let build = try FirmwarePatcher.build(["frow.fixed": "on", "frow.no-ctrl-fn-lock": "on"], definition: definition, stock: stock)
+        #expect(build.changedByteCount == 9)
+        try build.image.validate()
+        // Same instructions as the hardware-verified 0117 patch, at the ported offsets.
+        #expect(Array(build.image.firmware[0x027A4 ..< 0x027AC]) == [0x0B, 0x65, 0x60, 0x15, 0x63, 0x12, 0x05, 0x60])
+        #expect(Array(build.image.firmware[0x1E32C ..< 0x1E330]) == [0x6F, 0xF0, 0x9F, 0xFA])
+
+        let media = try FirmwarePatcher.build(["mac.f7": "previous-track"], definition: definition, stock: stock)
+        #expect(Array(media.image.firmware[0x1FBB1 ..< 0x1FBB4]) == [0x30, 0xB6, 0x00])
+    }
+}

@@ -80,7 +80,7 @@ public struct CustomFirmwareFeature: Sendable {
         }
 
         public var hasOTAInterface: Bool {
-            keyboard.model.map { keyboard.hasInterface(usagePage: $0.otaUsagePage) } ?? false
+            keyboard.model?.ota.map { keyboard.hasInterface(usagePage: $0.usagePage) } ?? false
         }
 
         /// Selections of the edited variant that the definition does not know.

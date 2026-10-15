@@ -55,7 +55,7 @@ struct SimulationTests {
         async let c = inspector.firmwareStatus(of: keyboard)
         let (snapshot, configuration, firmware) = try await (a, b, c)
         #expect(snapshot.configuration == configuration)
-        #expect(snapshot.battery.percent == 95 && snapshot.battery.charging == .charging && snapshot.status.mode == .wired)
+        #expect(snapshot.battery?.percent == 95 && snapshot.battery?.charging == .charging && snapshot.status?.mode == .wired)
         #expect(firmware.crc == SimulatedKeyboardHub.initialCRC && firmware.version == 0x0117)
     }
 
@@ -147,7 +147,7 @@ struct SimulationTests {
         let keyboard = try await Self.keyboard(wireless)
         #expect(!keyboard.hasInterface(usagePage: 0xFFEF))
         let snapshot = try await KeyboardInspector(channels: wireless).vendorSnapshot(of: keyboard)
-        #expect(snapshot.status.mode == .wireless(2) && snapshot.battery.percent == 15)
+        #expect(snapshot.status?.mode == .wireless(2) && snapshot.battery?.percent == 15)
 
         #expect(await SimulatedKeyboardHub(scenario: .named("empty")).keyboards().isEmpty)
         #expect(await SimulatedKeyboardHub(scenario: .named("unsupported")).keyboards().first?.model == nil)

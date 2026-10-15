@@ -4,6 +4,24 @@
   "minimumSystemVersion": "15.0",
   "releases": [
     {
+      "version": "1.1.0",
+      "notes": [
+        "支持更多 CHERRY 键盘：按官方驱动数据适配 MX BOARD、G80、PIXIU 98 / 99、MX 8.3 / 10.1 等有线、无线键盘和 2.4G 接收器，界面只显示该型号支持的功能。",
+        "PIXIU 75 以外的型号尚未在真机上验证；固件刷写仍只支持 PIXIU 75 系列，其他型号会说明如何用官方程序升级。",
+        "实验性「自定义固件」新增 PIXIU 75 宝可梦版（0102）。",
+        "修改灯效和休眠时只写入改动的字节。"
+      ],
+      "build": 3,
+      "date": "2026-10-15",
+      "published": "2026-10-15T15:19:56+00:00",
+      "dmg": "CherryUtility-1.1.0.dmg",
+      "length": 9632102,
+      "sha256": "e69e65a5a4f9b8b4f15f3b0cd3f1da6a992bd675a73468ebbf27cee9ff2cbb76",
+      "edSignature": "wJDpk2/IPgRGZ4ruXSXzMaNLe2ae1H1+8Z6uI0TnPB1M05zeHQ89UuKkf+yjQnD20PyXglo2TROynVe2b84bAw==",
+      "minimumSystemVersion": "15.0",
+      "notarized": true
+    },
+    {
       "version": "1.0.1",
       "notes": [
         "安装盘加入安装引导背景：把 CHERRY Utility 拖到「应用程序」即可完成安装。",

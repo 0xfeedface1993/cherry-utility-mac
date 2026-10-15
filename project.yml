@@ -25,6 +25,8 @@ settings:
     SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "15.0"
     SWIFT_STRICT_CONCURRENCY: complete
+    # No App Intents here; skips the extractor's "Metadata extraction skipped" warning on every bundle.
+    LM_SKIP_METADATA_EXTRACTION: "YES"
 targets:
   CherryUtility:
     type: application

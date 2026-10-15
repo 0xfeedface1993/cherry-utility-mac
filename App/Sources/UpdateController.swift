@@ -25,8 +25,8 @@ final class UpdateController {
         let enabled = Self.isConfigured(bundle) && (requested || (Self.isRelease && environment["CHERRY_SIMULATION"] == nil))
         feedOverride = enabled && !Self.isRelease ? environment["CHERRY_UPDATE_FEED"].map { FeedOverride(feed: $0) } : nil
         controller = enabled ? SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: feedOverride, userDriverDelegate: nil) : nil
-        observation = controller?.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
-            let value = updater.canCheckForUpdates
+        observation = controller?.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] _, change in
+            let value = change.newValue ?? false
             Task { @MainActor in self?.canCheckForUpdates = value }
         }
     }
@@ -94,8 +94,8 @@ final class UpdateController {
                           library.appending(path: "HTTPStorages/\(id)"), library.appending(path: "HTTPStorages/\(id).binarycookies")]
                 .filter { !FileManager.default.fileExists(atPath: $0.path) }
             super.init()
-            termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
-                self?.restore()
+            termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.restore() }
             }
         }
 

@@ -44,7 +44,7 @@ struct CompositionRoot {
             keySource = hub
             access = hub
             channelBase = hub
-            catalog = SimulatedStockCatalog()
+            catalog = SimulatedStockCatalog(base: SimulatedFirmwareCatalog(model: hub.scenario.model))
             presetDirectory = environment["CHERRY_PRESET_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
                 ?? FileManager.default.temporaryDirectory.appending(path: "CherryUtility-Simulation-\(UUID().uuidString)", directoryHint: .isDirectory)
             definitions = SimulatedFirmwareDefinitions()

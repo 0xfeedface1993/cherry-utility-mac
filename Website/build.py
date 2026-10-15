@@ -66,6 +66,8 @@ def render_index(data, design=False):
         values = {"VERSION": shown[0]["version"] if shown else "1.0", "DMG": "#changelog", "DMG_SIZE": "即将发布"}
     if design and not latest:
         values["DMG_SIZE"] = "14.8 MB"
+    # Hero eyebrow: the first public release is announced as such, later ones as the latest version.
+    values["HEADLINE"] = "即将发布" if not latest and not design else ("首个公开版本" if len(live) <= 1 else "最新版本")
     values["MIN_OS"] = data["minimumSystemVersion"]
     values["CHANGELOG"] = changelog_html(shown)
     for k, v in values.items():
@@ -73,7 +75,6 @@ def render_index(data, design=False):
     if not latest and not design:
         # Pending: keep the layout but make every download control inert.
         page = page.replace("data-download>", 'data-download aria-disabled="true" style="pointer-events:none;opacity:.55">')
-        page = page.replace("首个公开版本 · 支持应用内自动更新", "即将发布 · 支持应用内自动更新")
     leftover = re.findall(r"\{\{[A-Z_]+\}\}", page)
     if leftover:
         sys.exit(f"unfilled placeholders: {leftover}")

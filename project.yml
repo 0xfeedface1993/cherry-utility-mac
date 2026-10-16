@@ -20,12 +20,15 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.9.2"
+  ArgumentParser:
+    url: https://github.com/apple/swift-argument-parser
+    from: "1.8.0"
 settings:
   base:
     SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "15.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    # No App Intents here; skips the extractor's "Metadata extraction skipped" warning on every bundle.
+    # Only the app declares App Intents; skipping the extractor elsewhere avoids its "Metadata extraction skipped" warning.
     LM_SKIP_METADATA_EXTRACTION: "YES"
 targets:
   CherryUtility:
@@ -46,9 +49,19 @@ targets:
         product: CherryFeatures
       - package: CherryKit
         product: CherrySimulation
+      - package: CherryKit
+        product: CherryControl
+      - package: CherryKit
+        product: CherryControlService
       - package: ComposableArchitecture
       - package: Sparkle
         product: Sparkle
+      # 命令行工具放在 Contents/MacOS/cherry，随 App 一起签名、公证和通过 Sparkle 更新。
+      - target: cherry
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
     info:
       path: App/Info.plist
       properties:
@@ -82,6 +95,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: online.odeployer.CherryUtility
         PRODUCT_NAME: CherryUtility
+        # 快捷指令 / Spotlight 意图（App/Sources/Intents）：构建时提取 Metadata.appintents，系统据此发现动作。
+        LM_SKIP_METADATA_EXTRACTION: "NO"
         MARKETING_VERSION: "1.1.0"
         CURRENT_PROJECT_VERSION: "3"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -92,11 +107,38 @@ targets:
         ENABLE_HARDENED_RUNTIME[config=Release]: YES
         ARCHS[config=Release]: "arm64 x86_64"
         COMBINE_HIDPI_IMAGES: YES
+  # `cherry` 命令行：源码与 CherryKit 的 CherryCLI 可执行 target 相同（那边用于 swift build / 测试），这里构建要嵌入 App 的版本。
+  cherry:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Packages/CherryKit/Sources/CherryCLI
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    dependencies:
+      - package: CherryKit
+        product: CherryControl
+      - package: ArgumentParser
+        product: ArgumentParser
+    settings:
+      base:
+        PRODUCT_NAME: cherry
+        PRODUCT_BUNDLE_IDENTIFIER: online.odeployer.CherryUtility.cli
+        # 二进制内嵌 Info.plist，签名标识取 bundle ID。
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        SKIP_INSTALL: YES
+        ENABLE_HARDENED_RUNTIME[config=Debug]: NO
+        ENABLE_HARDENED_RUNTIME[config=Release]: YES
+        ARCHS[config=Release]: "arm64 x86_64"
   CherryUtilityUITests:
     type: bundle.ui-testing
     platform: macOS
     sources:
       - path: UITests
+        excludes:
+          - "Intents/**"
     configFiles:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
@@ -109,6 +151,27 @@ targets:
         CODE_SIGN_ENTITLEMENTS: UITests/CherryUtilityUITests.entitlements
         TEST_TARGET_NAME: CherryUtility
         ENABLE_HARDENED_RUNTIME: NO
+  # 意图测试经系统 App Intents 服务执行（AppIntentsTesting，macOS 27+），单独成 target 以免抬高其它 UI 测试的系统要求。
+  CherryUtilityIntentsUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    deploymentTarget: "27.0"
+    sources:
+      - path: UITests/Intents
+      - path: UITests/Support
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    dependencies:
+      - target: CherryUtility
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: online.odeployer.CherryUtility.intents-uitests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: UITests/CherryUtilityUITests.entitlements
+        TEST_TARGET_NAME: CherryUtility
+        ENABLE_HARDENED_RUNTIME: NO
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
 schemes:
   CherryUtility:
     build:
@@ -126,5 +189,6 @@ schemes:
         - package: CherryKit/CherryFeaturesTests
         - package: CherryKit/CherrySimulationTests
         - CherryUtilityUITests
+        - CherryUtilityIntentsUITests
     archive:
       config: Release

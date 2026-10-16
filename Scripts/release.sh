@@ -106,6 +106,12 @@ else
     codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$lib"
   done
   codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" --preserve-metadata=identifier,entitlements,flags "$sparkle"
+  # 命令行工具（Contents/MacOS/cherry）：公证要求每个可执行文件都有 Developer ID、安全时间戳和 Hardened Runtime。
+  cli="$app/Contents/MacOS/cherry"
+  [[ -x "$cli" ]] || { print -u2 "missing command-line tool: $cli"; exit 2; }
+  cli_archs="$(lipo -archs "$cli")"
+  [[ "$cli_archs" == *arm64* && "$cli_archs" == *x86_64* ]] || { print -u2 "expected a universal cherry, got: $cli_archs"; exit 1; }
+  codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" --identifier online.odeployer.CherryUtility.cli "$cli"
   codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" --preserve-metadata=identifier,entitlements,flags "$app"
   codesign --verify --deep --strict --verbose=2 "$app"
   # Capture before matching: with pipefail, `codesign | grep -q` fails (SIGPIPE) exactly when grep finds a match.
@@ -113,6 +119,8 @@ else
   [[ "$entitlements" != *get-task-allow* ]] || { print -u2 "release build carries get-task-allow"; exit 1; }
   signature_info="$(codesign -dv "$app" 2>&1)"
   [[ "$signature_info" == *"flags=0x10000(runtime)"* ]] || { print -u2 "hardened runtime flag missing"; exit 1; }
+  cli_signature="$(codesign -dv "$cli" 2>&1)"
+  [[ "$cli_signature" == *"flags=0x10000(runtime)"* ]] || { print -u2 "hardened runtime flag missing on cherry"; exit 1; }
 
   step "制作 DMG"
   "$repo/Scripts/make-dmg.sh" "$app" "$dmg"

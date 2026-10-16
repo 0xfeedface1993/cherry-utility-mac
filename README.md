@@ -23,6 +23,7 @@
 
 按官方驱动适配、未经真机验证的型号：官方 CHERRY Utility 2.3.28.7 设备表中的全部键盘和 2.4G 接收器，共 60 个 PID（MX BOARD 1.0/1.1/2.0S/3.0S/3.1/8.0/10.0、G80-3000、MV 3.0、MX 2.0/3.0S/8.2/Xaga 无线、MX-LP 2.1/6.1、MX 8.3 / 8.3 Pro / 10.1、PIXIU 75 宝可梦、PIXIU 98/99、K63W Pro 等）。它们与 PIXIU 75 用同一套私有协议，所以都能读取信息、切换配置档、修改灯效；可修改的字段严格按官方驱动对该 PID 写入的字节限定（无背光型号只能切换配置档，有线型号没有电量与休眠）。固件刷写只开放给使用 Telink USB_OTA 升级包的 PIXIU 75 与 PIXIU 75 宝可梦版；其它型号的固件页显示官方最新版本和升级方式（Sonix ISP、Nordic 等）。证据与型号表见 [Docs/多型号兼容.md](Docs/多型号兼容.md)。鼠标、鼠标垫等其它 Cherry 设备只显示 USB 信息。
 
+- **快捷指令与 Spotlight**：提供 10 个 App Intents 动作，包括获取键盘状态与电量、切换配置档、设置灯效、亮度、速度、颜色和休眠、关闭背光、载入预设。它们出现在快捷指令 App 里，可以用于自动化；macOS 26 起也能在 Spotlight 中直接运行。Mac 上的 Siri 不能直接语音触发这些动作，但可以运行用户自建的快捷指令。固件相关操作不开放给自动化。详见下文「自动化」。
 - **设置**：登录时打开、启动时是否显示主窗口、菜单栏是否显示电量；应用内更新（Sparkle）；实验性功能。
 
 ## 下载与快速上手
@@ -75,6 +76,12 @@ cd Packages/CherryKit && swift test
 
 ```bash
 xcodebuild -project CherryUtility.xcodeproj -scheme CherryUtility -skipMacroValidation test -only-testing:CherryUtilityUITests
+```
+
+快捷指令 / Spotlight 动作由 `CherryUtilityIntentsUITests` 验证（需要 macOS 27）。它用 Xcode 的 AppIntentsTesting 经系统的 App Intents 服务执行动作，App 运行在模拟模式；DerivedData 要放在 `~/Downloads` 之外，否则 XCUITest 会因 TCC 访问提示而卡住：
+
+```bash
+xcodebuild -project CherryUtility.xcodeproj -scheme CherryUtility -skipMacroValidation -derivedDataPath ~/Library/Developer/Xcode/DerivedData/CherryUtility-automation test -only-testing:CherryUtilityIntentsUITests
 ```
 
 想不接键盘体验界面，可以在 Xcode 的 Scheme → Run → Environment Variables 里加上 `CHERRY_SIMULATION=pixiu75`。模拟模式的偏好存放在独立域 `online.odeployer.CherryUtility.simulation`，每次启动清空；`CHERRY_EXPERIMENTAL=customFirmware` 预先打开实验性的自定义固件分区。
@@ -146,14 +153,20 @@ Packages/CherryKit
 │                    FirmwareFlasher · FirmwareUpdateService · ExclusiveChannelProvider(按接口排队)
 │                    CoreServices（App 与 Profile 工具共用的服务装配）
 │                    CustomFirmwareService（经 CoreServices.customFirmware 构造，刷写与验证复用 FirmwareUpdateService）
+│                    KeyboardAutomation（经 CoreServices.automation 构造）：自动化入口的选键盘、校验与只写请求字段，
+│                    写入经共享合并队列；ConfigurationChangeFeed 广播写后读回 · FirmwareActivity 刷写期间拒绝自动化写入
 ├─ CherryAdapters    被驱动适配器：IOKit HID（专用 run-loop 线程）· URLSession 固件目录 + 磁盘缓存 · 预设 JSON 文件库
 │                    自定义固件：定义目录（内置 + 用户）· 方案 JSON 文件库 · 写入记录
 │                    诊断：OSLog / signpost、有界 journal、导出（策略统一由 DiagnosticPolicyConfiguration 给出）
 ├─ CherrySimulation  模拟键盘与合成升级包（UI 测试、演示模式、Profile 工具），与生产适配器分开；模拟固件定义与带原厂条目的目录
-└─ CherryFeatures    驱动适配器：TCA Reducer + SwiftUI（依赖客户端只声明接口，不含 liveValue）
-                     App · DeviceInfo · Configuration(草稿编辑 ProfileEditor) · MenuBar · KeyTest · Firmware
-                     CustomFirmware(方案草稿 VariantEditor，文案在 CustomFirmwarePresentation)
+├─ CherryFeatures    驱动适配器：TCA Reducer + SwiftUI（依赖客户端只声明接口，不含 liveValue）
+│                    App · DeviceInfo · Configuration(草稿编辑 ProfileEditor) · MenuBar · KeyTest · Firmware
+│                    CustomFirmware(方案草稿 VariantEditor，文案在 CustomFirmwarePresentation)
+├─ CherryControl     本地控制协议 v1（Unix socket，按行 JSON）：消息类型、同步客户端、App 端 socket 服务；只依赖 Foundation
+├─ CherryControlService  驱动适配器：控制请求 → KeyboardAutomation，文案复用 AutomationText
+└─ CherryCLI         `cherry` 命令（swift-argument-parser），project.yml 的 tool target 用同一份源码嵌入 App
 App/                  组合根：创建适配器交给 CoreServices，通过 withDependencies 注入，不含业务逻辑；主窗口 + MenuBarExtra
+                      Sources/Intents：App Intents 与 App Shortcuts（快捷指令 / Spotlight），只调用 KeyboardAutomation
                       Resources/FirmwareDefinitions：内置的 .cherryfw 固件定义
 ```
 
@@ -164,6 +177,47 @@ App/                  组合根：创建适配器交给 CoreServices，通过 wi
 - OTA 每发一个报文前都检查一次取消。
 - 菜单栏轮询、各页面刷新、固件读取共用一个设备。`ExclusiveChannelProvider` 按（键盘, UsagePage）先进先出排队，不会再报「接口被占用」。它用 `Mutex` 实现：等待者被取消时要在同步回调里原子地出队，锁内只改表，`resume` 都在锁外。
 - 写配置走 `0x01` 开始 → `0x06` 写入 → `0x02` 结束。`0x02` 即使中途出错或被取消也会尽力发出。写入是「读-改-写」：只发送改动字段对应的字节，写完读回校验。
+
+## 自动化（快捷指令 / Spotlight）
+
+动作在 App 进程内执行，与菜单栏、主窗口共用同一个设备通道和写入队列；写入后菜单栏和主窗口会立即刷新。不选「键盘」时使用唯一连接的键盘，不选「配置档」时修改当前配置档。
+
+| 动作 | 说明 |
+|---|---|
+| 获取键盘状态 | 返回电量、连接方式、固件、当前配置档、灯效、亮度、速度、颜色、休眠等，可在快捷指令里取用 |
+| 获取键盘电量 | 返回电量百分比（只适用于无线型号） |
+| 切换配置档 | 配置 1 / 2 / 3 |
+| 设置灯效 | 按名字指定，执行时在目标型号的灯效表里解析；该型号没有这个灯效时会列出可选项 |
+| 设置背光亮度 · 关闭背光 | 灭 / 低 / 中 / 高 / 全亮 |
+| 设置灯效速度 | 1（最慢）到 5（最快） |
+| 设置灯光颜色 | 官方调色板 10 色、随机颜色，或自定义 `#RRGGBB` |
+| 设置休眠时间 | 休眠 0 或 30–300 秒，深度休眠 0 或 15–300 分钟（0 为不休眠） |
+| 载入灯光预设 | 与菜单栏的「载入预设」相同；来自其他型号的预设会被拒绝 |
+
+- 需要已授予「输入监控」权限（与菜单栏相同）。
+- 系统为执行动作启动 App 时，可能会弹出主窗口。建议打开「设置 › 通用 › 登录时打开」，并关闭「启动时显示主窗口」。
+- Siri AI 目前不能调用第三方的设备控制动作；MCP 服务在规划中。调研结论与后续阶段见 [Docs/自动化接入方案.md](Docs/自动化接入方案.md)。
+
+### 命令行 `cherry`
+
+App 包内附带命令行工具 `Contents/MacOS/cherry`。它经本机 socket（`~/Library/Application Support/CherryUtility/control.sock`，只允许本用户连接）调用运行中的 App，与菜单栏、快捷指令共用同一个设备通道和写入队列。App 没运行时会在后台启动它，不显示主窗口。不提供固件操作。
+
+```bash
+ln -s "/Applications/CHERRY Utility.app/Contents/MacOS/cherry" ~/.local/bin/cherry
+```
+
+```text
+cherry status                        # 电量、连接、固件和三个配置档
+cherry profile 1                     # 切换配置档
+cherry set --effect 呼吸 --brightness 高
+cherry set --profile 3 --color '#FF7200' --sleep 0
+cherry preset apply 办公
+cherry keyboards | effects | presets | battery | watch | version
+```
+
+- 加 `--json` 输出 JSON；`-k <ID>` 指定键盘，ID 由 `cherry keyboards` 列出。
+- 退出码：0 成功，2 用法错误，3 无法连接 App，4 键盘或参数被拒绝。
+- 端到端检查：`Scripts/verify-cli.sh`。它以模拟模式在后台启动 Debug 构建，socket 放在 /tmp 下的独立目录，不碰正式 App。
 
 ## 自定义固件
 

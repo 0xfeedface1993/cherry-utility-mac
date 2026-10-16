@@ -1,6 +1,9 @@
+import AppIntents
 import AppKit
+import CherryControl
 import CherryFeatures
 import ComposableArchitecture
+import OSLog
 import SwiftUI
 
 @main
@@ -20,12 +23,26 @@ struct CherryUtilityApp: App {
         UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])
         let root = CompositionRoot()
         let runtime = root.diagnosticRuntime
+        // 系统可能为了执行快捷指令 / Spotlight 意图而启动 App；意图执行前 App.init 一定已经完成，这里注册即可。
+        let automation = root.automation
+        AppDependencyManager.shared.add(dependency: automation)
+        root.startControlServer()
+        if root.simulation == nil {
+            CherryShortcuts.updateAppShortcutParameters()
+        } else {
+            #if DEBUG
+            AutomationCatalogCheck.verify()
+            #endif
+        }
         let updates = UpdateController()
         simulation = root.simulation
         // `@Shared(.appStorage)` keys resolve their UserDefaults when state is created, so point them at the
         // composition root's store before the first State exists.
         prepareDependencies { $0.defaultAppStorage = root.preferences }
-        showsMainWindowAtLaunch = root.simulation != nil || (root.preferences.object(forKey: "showMainWindowAtLaunch") as? Bool ?? true)
+        // 命令行在后台启动 App（`open --args --background`）时不显示主窗口。
+        let launchedInBackground = CommandLine.arguments.contains(ControlProtocol.backgroundLaunchArgument)
+        showsMainWindowAtLaunch = !launchedInBackground
+            && (root.simulation != nil || (root.preferences.object(forKey: "showMainWindowAtLaunch") as? Bool ?? true))
         let store = Store(initialState: AppFeature.State()) {
             AppFeature()
         } withDependencies: {
@@ -38,6 +55,7 @@ struct CherryUtilityApp: App {
         _updates = State(initialValue: updates)
         // init 中取到的就是 SwiftUI 之后回调的 delegate 实例（2026-10-11 用最小程序验证过）。
         appDelegate.flushDiagnostics = { try? await runtime.flush() }
+        appDelegate.stopControlServer = root.stopControlServer
     }
 
     var body: some Scene {
@@ -79,9 +97,34 @@ struct CherryUtilityApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 由 App 在启动时注入；退出前尽力写完诊断 journal。
     var flushDiagnostics: (@Sendable () async -> Void)?
+    /// 由 App 在启动时注入；退出时关闭命令行 socket。
+    var stopControlServer: (@Sendable () -> Void)?
     private var terminationTask: Task<Void, Never>?
+    private static let launchLog = Logger(subsystem: "online.odeployer.CherryUtility", category: "launch")
+    private var launchEvent = "none"
+
+    // 启动探针：记录是谁启动了 App（Finder / 登录项 / 为执行意图被系统拉起），用于判断能否在后台启动时不弹主窗口。
+    // 只记录 Apple Event 编号和两个布尔值，不含用户数据。
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        if let event = NSAppleEventManager.shared().currentAppleEvent {
+            launchEvent = Self.fourCharacterCode(event.eventClass) + "/" + Self.fourCharacterCode(event.eventID)
+        }
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let isDefault = (notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool).map(String.init) ?? "nil"
+        let isActive = NSApp.isActive
+        let event = launchEvent
+        Self.launchLog.info("launch event=\(event, privacy: .public) isDefaultLaunch=\(isDefault, privacy: .public) isActive=\(isActive, privacy: .public)")
+    }
+
+    private static func fourCharacterCode(_ code: UInt32) -> String {
+        String(bytes: [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: code >> $0) }, encoding: .macOSRoman) ?? String(code)
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        stopControlServer?()
+        stopControlServer = nil
         guard let flush = flushDiagnostics else { return .terminateNow }
         if terminationTask == nil {
             terminationTask = Task { @MainActor in

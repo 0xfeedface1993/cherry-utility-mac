@@ -1,10 +1,13 @@
 import AppKit
 import CherryAdapters
+import CherryControl
+import CherryControlService
 import CherryCore
 import CherryFeatures
 import CherrySimulation
 import ComposableArchitecture
 import Foundation
+import OSLog
 
 /// The only place that knows about concrete adapters: builds them once, hands them to `CoreServices`
 /// (the shared Core assembly) and plugs the services into the feature clients. No use-case logic lives here.
@@ -18,6 +21,12 @@ struct CompositionRoot {
     private let services: CoreServices
     private let presets: PresetLibrary
     private let customFirmware: CustomFirmwareService
+    /// 正在刷写固件的键盘；刷写期间自动化入口拒绝写入。
+    private let firmwareActivity = FirmwareActivity()
+    /// 快捷指令 / Spotlight 意图使用的用例服务，由 App 启动时注册给 App Intents。
+    let automation: KeyboardAutomation
+    /// 命令行（之后的 MCP）连接的本地 socket；模拟模式只在指定 `CHERRY_CONTROL_SOCKET` 时开启，不碰正式 App 的 socket。
+    private let controlServer: ControlSocketServer?
     /// Set in simulation mode only.
     let simulation: SimulationControls?
     let diagnosticRuntime: DiagnosticsRuntime
@@ -75,11 +84,40 @@ struct CompositionRoot {
             diagnostics: diagnostics
         )
         presets = PresetLibrary(store: FileProfilePresetStore(directory: presetDirectory, diagnostics: diagnostics))
+        automation = services.automation(presets: presets, activity: firmwareActivity)
+        let socketPath = environment[ControlProtocol.socketEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 }
+            ?? (simulation == nil ? ControlProtocol.defaultSocketPath : nil)
+        let info = Bundle.main.infoDictionary
+        let control = ControlService(
+            automation: automation, appVersion: info?["CFBundleShortVersionString"] as? String ?? "?",
+            build: info?["CFBundleVersion"] as? String ?? "?"
+        )
+        controlServer = socketPath.map { ControlSocketServer(path: $0) { request, reply in await control.handle(request, reply: reply) } }
         customFirmware = services.customFirmware(
             definitions: definitions,
             variants: FileFirmwareVariantStore(directory: customDirectory.appending(path: "Variants", directoryHint: .isDirectory), diagnostics: diagnostics),
             flashLog: FileFirmwareFlashLog(file: customDirectory.appending(path: "flash-history.json"), diagnostics: diagnostics)
         )
+    }
+
+    private static let controlLog = Logger(subsystem: "online.odeployer.CherryUtility", category: "control")
+
+    /// 开始接受命令行连接。另一个实例已在应答时不重复监听；失败只记录，不影响界面。
+    func startControlServer() {
+        guard let controlServer else { return }
+        do {
+            try controlServer.start()
+        } catch .alreadyRunning {
+            Self.controlLog.info("control socket already served by another instance")
+        } catch {
+            Self.controlLog.error("control socket unavailable: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// 退出时删除 socket 文件，命令行据此判断 App 已不在运行。
+    var stopControlServer: @Sendable () -> Void {
+        let server = controlServer
+        return { server?.stop() }
     }
 
     private static func simulationPreferences(experimental: String?) -> UserDefaults {
@@ -121,6 +159,13 @@ struct CompositionRoot {
         let firmware = services.firmware
         let presets = presets
         let simulation = simulation
+        let activity = firmwareActivity
+        let automation = automation
+        // 预设变化后刷新快捷指令里「预设」参数的候选；模拟模式的临时预设不进入系统。
+        let refreshesShortcuts = simulation == nil
+        let presetsChanged: @Sendable () -> Void = {
+            if refreshesShortcuts { CherryShortcuts.updateAppShortcutParameters() }
+        }
 
         dependencies.keyboardClient = KeyboardClient(
             keyboards: { await discovery.keyboards() },
@@ -137,10 +182,20 @@ struct CompositionRoot {
         )
         dependencies.presetClient = PresetClient(
             presets: { try await presets.presets() },
-            save: { try await presets.save(name: $0, settings: $1, from: $2) },
-            delete: { try await presets.delete(id: $0) },
-            importFile: { try await presets.importPreset(try await LocalFile.read($0)) }
+            save: { name, settings, keyboard in
+                defer { presetsChanged() }
+                return try await presets.save(name: name, settings: settings, from: keyboard)
+            },
+            delete: { id in
+                defer { presetsChanged() }
+                try await presets.delete(id: id)
+            },
+            importFile: { url in
+                defer { presetsChanged() }
+                return try await presets.importPreset(try await LocalFile.read(url))
+            }
         )
+        dependencies.configurationChangeClient = ConfigurationChangeClient(changes: { automation.changes() })
         dependencies.keyTestClient = KeyTestClient(
             accessStatus: { access.status() },
             requestAccess: { await access.request() },
@@ -161,7 +216,9 @@ struct CompositionRoot {
             download: { try await firmware.download($0) },
             loadLocal: { url in try firmware.loadLocal(try await LocalFile.read(url), from: url) },
             deviceFirmware: { try await firmware.deviceFirmware(keyboard: $0, package: $1) },
-            flash: { try await firmware.flash(keyboard: $0, package: $1, progress: $2) },
+            flash: { keyboard, package, progress in
+                try await activity.during(keyboard.id) { try await firmware.flash(keyboard: keyboard, package: package, progress: progress) }
+            },
             verifyAfterFlash: { try await firmware.verifyAfterFlash(keyboard: $0, package: $1) }
         )
         let custom = customFirmware
@@ -176,7 +233,9 @@ struct CompositionRoot {
             deleteVariant: { try await custom.deleteVariant(id: $0) },
             prepareInstall: { try custom.prepareInstall($0, definition: $1, stock: $2) },
             deviceFirmware: { try await inspector.firmwareStatus(of: $0) },
-            flash: { try await custom.flash($0, on: $1, progress: $2) },
+            flash: { install, keyboard, progress in
+                try await activity.during(keyboard.id) { try await custom.flash(install, on: keyboard, progress: progress) }
+            },
             verify: { try await custom.verify($0, on: $1) }
         )
     }

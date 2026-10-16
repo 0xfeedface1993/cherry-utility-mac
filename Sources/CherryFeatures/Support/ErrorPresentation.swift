@@ -7,7 +7,8 @@ protocol UserFacingError: Error {
 }
 
 extension Error {
-    var userMessage: String {
+    /// 界面与自动化入口（快捷指令等）共用的中文错误文案。
+    public var userMessage: String {
         if let error = self as? any UserFacingError { return error.message }
         return (self as? LocalizedError)?.errorDescription ?? localizedDescription
     }

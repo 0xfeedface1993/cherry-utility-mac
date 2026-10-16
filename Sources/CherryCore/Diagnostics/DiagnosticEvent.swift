@@ -31,6 +31,8 @@ public enum DiagnosticPhase: String, Codable, Sendable { case began, finished, s
 
 public enum DiagnosticOrigin: String, Codable, Sendable {
     case app, menuBar, deviceInfo, configuration, firmware, keytest, background, profile
+    /// 快捷指令、Spotlight 等系统自动化入口（之后的 CLI / MCP 也经 App 走这里）。
+    case automation
 }
 
 /// 固定数值字段不会携带用户可输入的任意文本。

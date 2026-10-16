@@ -176,7 +176,7 @@ public struct MenuBarFeature: Sendable {
                     return .none
                 }
                 guard let model = state.model else { return .none }
-                return write(&state) { _ in ProfilePatch(preset.settings, fields: model.applicableFields(of: preset.settings)) }
+                return write(&state) { _ in preset.patch(for: model) }
             case .intentFinished(let requestID, let id, let result):
                 guard let request = state.requests.first(where: { $0.id == requestID && $0.keyboardID == id }) else { return .none }
                 state.requests.removeAll { $0.id == requestID }

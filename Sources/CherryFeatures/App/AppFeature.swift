@@ -23,6 +23,8 @@ public struct AppFeature: Sendable {
         case task
         case keyboardsUpdated([KeyboardSummary])
         case selectKeyboard(KeyboardID?)
+        /// 自动化入口写入并读回的配置。
+        case externalConfigurationChanged(ExternalConfigurationChange)
         case detail(KeyboardFeature.Action)
         case menuBar(MenuBarFeature.Action)
         case diagnostics(DiagnosticsFeature.Action)
@@ -30,6 +32,7 @@ public struct AppFeature: Sendable {
     }
 
     @Dependency(\.keyboardClient) var keyboardClient
+    @Dependency(\.configurationChangeClient) var configurationChangeClient
 
     public init() {}
 
@@ -47,6 +50,12 @@ public struct AppFeature: Sendable {
                         for await list in keyboardClient.updates() {
                             try Task.checkCancellation()
                             await send(.keyboardsUpdated(list))
+                        }
+                    },
+                    .run { send in
+                        for await change in configurationChangeClient.changes() {
+                            try Task.checkCancellation()
+                            await send(.externalConfigurationChanged(change))
                         }
                     },
                     .send(.menuBar(.task))
@@ -75,6 +84,15 @@ public struct AppFeature: Sendable {
                 guard id != state.selectedID, state.detail?.isBusy != true else { return .none }
                 state.detail = id.flatMap { state.keyboards[id: $0] }.map(KeyboardFeature.State.init)
                 return .none
+
+            case .externalConfigurationChanged(let external):
+                let menuBar: Effect<Action> = .send(.menuBar(.configurationSynchronized(external.keyboardID, external.change)))
+                guard let detail = state.detail, detail.keyboard.id == external.keyboardID else { return menuBar }
+                return .merge(
+                    menuBar,
+                    .send(.detail(.configuration(.configurationSynchronized(external.change)))),
+                    .send(.detail(.info(.configurationSynchronized(external.change))))
+                )
 
             case .menuBar(.delegate(.configurationChanged(let id, let change))):
                 guard let detail = state.detail, detail.keyboard.id == id else { return .none }

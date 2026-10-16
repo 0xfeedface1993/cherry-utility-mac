@@ -47,6 +47,26 @@ public struct CoreServices: Sendable {
     }
 }
 
+extension CoreServices {
+    /// 自动化入口的用例服务：读取经共享独占通道，写入经共享合并队列，与菜单栏和主窗口不互相穿插。
+    /// `activity` 标记正在刷写固件的键盘，期间拒绝自动化写入。
+    public func automation(
+        presets: PresetLibrary, activity: FirmwareActivity? = nil, feed: ConfigurationChangeFeed = .init(),
+        timing: KeyboardAutomation.Timing = .init(), clock: any Clock<Duration> = ContinuousClock()
+    ) -> KeyboardAutomation {
+        let inspector = inspector, configurator = configurator, writer = writer
+        return KeyboardAutomation(
+            discovery: discovery,
+            snapshot: { try await inspector.vendorSnapshot(of: $0) },
+            battery: { try await inspector.battery(of: $0) },
+            configuration: { try await configurator.configuration(of: $0) },
+            apply: { try await writer.apply($0, on: $1) },
+            presets: { try await presets.presets() },
+            feed: feed, activity: activity, timing: timing, clock: clock
+        )
+    }
+}
+
 extension KeyboardConfigurationWriter {
     /// 单个 profile 的补丁，经写入队列合并执行；返回该 profile 的读回。
     public func update(profile: Int, patch: ProfilePatch, on keyboard: KeyboardSummary) async throws -> ProfileConfig {

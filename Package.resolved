@@ -1,5 +1,5 @@
 {
-  "originHash" : "497cc9d49e6e2216077db35f50966f4a01539bbb551e0d1ea51adc58ee4d8c83",
+  "originHash" : "bb66c8df375407dbd768f46cadefa8fa2b09b34a06af58db9b93295bde3b49f9",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -11,12 +11,12 @@
       }
     },
     {
-      "identity" : "sparkle",
+      "identity" : "swift-argument-parser",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/sparkle-project/Sparkle",
+      "location" : "https://github.com/apple/swift-argument-parser",
       "state" : {
-        "revision" : "eef1a539a373c1f1a320624b1130fc5de7b2e100",
-        "version" : "2.10.0"
+        "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+        "version" : "1.8.2"
       }
     },
     {

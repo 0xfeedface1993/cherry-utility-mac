@@ -23,6 +23,11 @@ public struct ProfilePreset: Equatable, Sendable, Codable, Identifiable {
         productID == nil || productID == keyboard.id.productID
     }
 
+    /// What loading this preset into a profile of `model` writes: only the fields the model can take.
+    public func patch(for model: KeyboardModel) -> ProfilePatch {
+        ProfilePatch(settings, fields: model.applicableFields(of: settings))
+    }
+
     public func encoded() throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

@@ -402,6 +402,7 @@ struct AppMenuBarWiringTests {
         } withDependencies: {
             $0.uuid = .incrementing
             $0.keyboardClient.updates = { AsyncStream { $0.finish() } }
+            $0.configurationChangeClient.changes = { AsyncStream { $0.finish() } }
             $0.continuousClock = TestClock()
         }
         store.exhaustivity = .off

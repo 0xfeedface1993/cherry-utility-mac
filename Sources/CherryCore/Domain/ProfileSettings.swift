@@ -11,10 +11,12 @@ public struct LEDColor: Hashable, Sendable, Codable, CustomStringConvertible {
         self.b = b
     }
 
-    /// Parses `#RRGGBB` / `RRGGBB`.
+    /// Parses `#RRGGBB` / `RRGGBB`: exactly six ASCII hex digits (no sign, spaces or full-width digits, which
+    /// `UInt32(_:radix:)` alone would let through).
     public init?(hex: String) {
         let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
-        guard digits.count == 6, let v = UInt32(digits, radix: 16) else { return nil }
+        guard digits.utf8.count == 6, digits.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x41...0x46).contains($0) || (0x61...0x66).contains($0) }),
+              let v = UInt32(digits, radix: 16) else { return nil }
         self.init(r: UInt8(v >> 16 & 0xFF), g: UInt8(v >> 8 & 0xFF), b: UInt8(v & 0xFF))
     }
 

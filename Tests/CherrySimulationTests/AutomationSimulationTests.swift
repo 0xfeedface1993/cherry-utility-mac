@@ -53,6 +53,19 @@ struct AutomationSimulationTests {
         #expect(after?.activeProfile == 0)
     }
 
+    /// 不指定配置档的并发写入与切换（B4）：每个写入报告的配置档里都有它写的字段，报告的就是读回里它落到的那一档。
+    @Test func concurrentActiveProfileWritesReportWhereTheyLanded() async throws {
+        let s = Self.stack()
+        async let dim = s.automation.update(SettingsRequest(brightness: 1), profile: nil, on: nil)
+        async let fast = s.automation.update(SettingsRequest(speed: 4), profile: nil, on: nil)
+        async let switched = s.automation.activate(profile: 0, on: nil)
+        let (a, b, c) = try await (dim, fast, switched)
+        #expect(a.settings?.brightness == 1 && b.settings?.speed == 4 && c.configuration.activeProfile == 0)
+        #expect(a.profile == a.configuration.activeProfile && b.profile == b.configuration.activeProfile)
+        let after = try #require(try await s.automation.status(of: nil).snapshot?.configuration)
+        #expect(after.profile(a.profile)?.brightness == 1 && after.profile(b.profile)?.speed == 4)
+    }
+
     @Test func presetsLoadIntoTheActiveProfile() async throws {
         let s = Self.stack()
         let keyboard = try await s.automation.keyboard(nil)

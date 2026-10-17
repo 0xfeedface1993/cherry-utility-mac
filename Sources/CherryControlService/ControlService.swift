@@ -50,15 +50,15 @@ public struct ControlService: Sendable {
             return ControlResult(presets: try await automation.presets().map(ControlPreset.init))
         case .activateProfile:
             let profile = try Self.required(params.profile, "profile")
-            let result = try await automation.activate(profile: profile - 1, on: try Self.keyboardID(params))
+            let result = try await automation.activate(profile: try Self.zeroBased(profile, "profile"), on: try Self.keyboardID(params))
             return Self.written(result, message: AutomationText.activated(result))
         case .update:
             let settings = try Self.settings(params)
-            let result = try await automation.update(settings, profile: params.profile.map { $0 - 1 }, on: try Self.keyboardID(params))
+            let result = try await automation.update(settings, profile: try Self.profile(params), on: try Self.keyboardID(params))
             return Self.written(result, message: AutomationText.updated(result, request: settings))
         case .applyPreset:
             let preset = try await preset(named: try Self.required(params.preset, "preset"))
-            let result = try await automation.applyPreset(id: preset.id, profile: params.profile.map { $0 - 1 }, on: try Self.keyboardID(params))
+            let result = try await automation.applyPreset(id: preset.id, profile: try Self.profile(params), on: try Self.keyboardID(params))
             return Self.written(result, message: AutomationText.presetApplied(preset.name, result))
         case .watch:
             return ControlResult()
@@ -97,6 +97,18 @@ public struct ControlService: Sendable {
         return id
     }
 
+    /// 线上 1 起的编号换成 Core 的 0 起。范围由 Core 按型号校验（文案相同）；只有减 1 会溢出的值（Int.min）在这里拒绝，
+    /// 否则同一用户的任何进程发一个极端值就能让 App 崩溃。
+    static func zeroBased(_ value: Int, _ name: String) throws -> Int {
+        let (result, overflow) = value.subtractingReportingOverflow(1)
+        guard !overflow else { throw ControlFailure(code: "invalidArgument", message: "参数 \(name) 的值 \(value) 无效") }
+        return result
+    }
+
+    static func profile(_ params: ControlParams) throws -> Int? {
+        try params.profile.map { try zeroBased($0, "profile") }
+    }
+
     static func required<T>(_ value: T?, _ name: String) throws -> T {
         guard let value else { throw ControlFailure(code: "invalidArgument", message: "缺少参数 \(name)") }
         return value
@@ -104,7 +116,7 @@ public struct ControlService: Sendable {
 
     static func settings(_ params: ControlParams) throws -> SettingsRequest {
         SettingsRequest(
-            effect: params.effect, brightness: params.brightness, speed: params.speed.map { $0 - 1 },
+            effect: params.effect, brightness: params.brightness, speed: try params.speed.map { try Self.zeroBased($0, "speed") },
             color: try params.color.map(SettingsRequest.Color.init(parsing:)), sleepSeconds: params.sleepSeconds,
             deepSleepMinutes: params.deepSleepMinutes
         )

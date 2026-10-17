@@ -13,6 +13,22 @@ struct ConnectionOptions: ParsableArguments {
 struct KeyboardOption: ParsableArguments {
     @Option(name: .shortAndLong, help: "键盘 ID（cherry keyboards 列出）；不填时使用唯一连接的键盘。")
     var keyboard: String?
+
+    func validate() throws {
+        try ArgumentLimit.check(keyboard, "--keyboard", ArgumentLimit.short)
+    }
+}
+
+/// 字符串参数的长度上限：请求必须装进控制协议的一行（64 KiB），超长时在命令行就报用法错误，
+/// 而不是让 App 断开连接、被误报成「App 已退出」。
+enum ArgumentLimit {
+    static let short = 64
+    static let presetName = 256
+
+    static func check(_ value: String?, _ name: String, _ limit: Int) throws {
+        guard let value, value.count > limit else { return }
+        throw ValidationError("\(name) 过长（\(value.count) 个字符，最多 \(limit) 个）")
+    }
 }
 
 struct OutputOptions: ParsableArguments {
@@ -31,6 +47,7 @@ enum CLIError: Error, Equatable {
         case .disconnected: self = .appUnavailable("CHERRY Utility 关闭了连接（可能已退出）")
         case .timeout: self = .failed("等待 CHERRY Utility 响应超时")
         case .pathTooLong(let path): self = .failed("socket 路径过长：\(path)")
+        case .notASocket(let path): self = .failed("\(path) 不是 socket，而是被别的文件占用；删除或换一个路径后重启 CHERRY Utility")
         case .malformedResponse: self = .failed("CHERRY Utility 的响应格式不对（App 与命令行版本可能不一致）")
         case .system(let operation, let code): self = .failed("\(operation) 失败：\(String(cString: strerror(code)))")
         }
@@ -41,6 +58,15 @@ enum CLIError: Error, Equatable {
         case .appUnavailable: CherryExit.appUnavailable
         case .rejected: CherryExit.rejected
         case .failed: 1
+        }
+    }
+
+    /// `--json` 与 MCP 使用的错误对象：App 拒绝时原样转发，连不上 App 或客户端出错时给出稳定的错误码。
+    var failure: ControlFailure {
+        switch self {
+        case .rejected(let failure): failure
+        case .appUnavailable(let message): ControlFailure(code: "appUnavailable", message: message)
+        case .failed(let message): ControlFailure(code: "clientError", message: message)
         }
     }
 
@@ -61,11 +87,18 @@ struct Session {
         _ options: ConnectionOptions, timeout: Duration? = .seconds(20),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws(CLIError) -> Session {
-        let explicit = options.socket ?? environment[ControlProtocol.socketEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 }
+        try open(socket: options.socket, noLaunch: options.noLaunch, timeout: timeout, environment: environment)
+    }
+
+    static func open(
+        socket: String?, noLaunch: Bool, timeout: Duration? = .seconds(20),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws(CLIError) -> Session {
+        let explicit = socket ?? environment[ControlProtocol.socketEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 }
         let path = explicit ?? ControlProtocol.defaultSocketPath
         do {
             return Session(client: try ControlClient.connect(path: path, timeout: timeout))
-        } catch .unavailable where explicit == nil && !options.noLaunch {
+        } catch .unavailable where explicit == nil && !noLaunch {
             try launchApp()
             return try waitForApp(path: path, timeout: timeout)
         } catch .unavailable {
@@ -145,7 +178,22 @@ func perform(
         let result = try body(try Session.open(connection))
         print(json ? Output.json(result) : human(result))
     } catch let error as CLIError {
-        FileHandle.standardError.write(Data(("错误：" + error.message + "\n").utf8))
+        report(error, json: json)
         throw ExitCode(error.exitCode)
     }
+}
+
+/// 失败输出：文本模式写到标准错误；`--json` 时把 `{"error":{code,message,candidates}}` 写到标准输出，脚本能拿到错误码。
+/// `watch --json` 每个事件一行，错误也写成一行（`line`），逐行解析的调用方不会读到半个对象。
+func report(_ error: CLIError, json: Bool, line: Bool = false) {
+    if json {
+        let output = ErrorOutput(error: error.failure)
+        print(line ? Output.jsonLine(output) : Output.json(output))
+    } else {
+        FileHandle.standardError.write(Data(("错误：" + error.message + "\n").utf8))
+    }
+}
+
+struct ErrorOutput: Encodable {
+    let error: ControlFailure
 }

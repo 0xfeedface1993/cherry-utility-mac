@@ -28,11 +28,14 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
         public var rebootDelay: Duration = .milliseconds(1200)
         /// Delay before each reply, so progress is observable in the UI.
         public var replyDelay: Duration = .zero
+        /// Extra delay before each OTA reply (0xFFEF), so a flash lasts long enough to act on it while it runs.
+        public var otaReplyDelay: Duration = .zero
 
         public init() {}
 
-        /// `pixiu75` (default), `dual`, `slow`, `empty`, `unsupported`, `denied`, `wireless`, `customfw` (runs the synthetic
-        /// stock image that `SimulatedCustomFirmware` has a definition for), and other models: `mx30s` (wired RGB board,
+        /// `pixiu75` (default), `dual`, `slow`, `slowflash` (OTA replies take 40 ms: a flash takes about 5 s), `empty`,
+        /// `unsupported`, `denied`, `wireless`, `customfw` (runs the synthetic stock image that `SimulatedCustomFirmware`
+        /// has a definition for), and other models: `mx30s` (wired RGB board,
         /// no battery / OTA), `nbl` (wired, no backlight), `pixiu98` (type-B effect table, no OTA), `receiver` (PIXIU 75
         /// 2.4 GHz receiver).
         public static func named(_ name: String) -> Scenario {
@@ -40,6 +43,7 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
             switch name {
             case "dual": s.additionalDevice = true
             case "slow": s.replyDelay = .milliseconds(180)
+            case "slowflash": s.otaReplyDelay = .milliseconds(40)
             case "empty": s.device = .none
             case "unsupported": s.device = .unsupported
             case "denied": s.accessDenied = true
@@ -278,7 +282,8 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
         if let secondary, keyboard == secondary.deviceID {
             return try await secondary.openChannel(keyboard: keyboard, usagePage: usagePage, reportID: reportID)
         }
-        let channel = SimulatedReportChannel(reportID: reportID, replyDelay: scenario.replyDelay) { [weak self] report in
+        let delay = usagePage == 0xFFEF ? scenario.replyDelay + scenario.otaReplyDelay : scenario.replyDelay
+        let channel = SimulatedReportChannel(reportID: reportID, replyDelay: delay) { [weak self] report in
             self?.handle(report, usagePage: usagePage) ?? []
         }
         try state.withLock { s in

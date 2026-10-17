@@ -5,6 +5,8 @@ public enum ControlClientError: Error, Equatable, Sendable {
     /// socket 不存在或没有进程在监听：App 没在运行。
     case unavailable
     case pathTooLong(String)
+    /// 路径上是别的文件（不是 socket），App 不会删除它，也就无法在这里监听。
+    case notASocket(String)
     case timeout
     /// App 关闭了连接（例如退出）。
     case disconnected
@@ -34,7 +36,11 @@ public final class ControlClient {
         guard rc == 0 else {
             let code = errno
             Darwin.close(fd)
-            throw [ENOENT, ECONNREFUSED].contains(code) ? .unavailable : .system(operation: "connect", code: code)
+            switch code {
+            case ENOENT, ECONNREFUSED: throw .unavailable
+            case ENOTSOCK: throw .notASocket(path)
+            default: throw .system(operation: "connect", code: code)
+            }
         }
         UnixSocket.setTimeout(fd, option: SO_RCVTIMEO, timeout)
         UnixSocket.setTimeout(fd, option: SO_SNDTIMEO, timeout)
@@ -46,7 +52,8 @@ public final class ControlClient {
         let id = try send(method, params)
         while true {
             let response = try receive()
-            if response.id == id { return response }
+            // id 0 的失败是服务端在读不懂请求（格式错误、超过一行的上限）时主动回的，也属于这次调用。
+            if response.id == id || (response.id == 0 && !response.ok) { return response }
         }
     }
 

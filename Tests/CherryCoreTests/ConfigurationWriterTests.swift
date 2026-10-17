@@ -54,6 +54,27 @@ struct ConfigurationWriterTests {
         #expect(await probe.count == 2)
     }
 
+    /// 不指定配置档的补丁（自动化入口）在执行时才落到当前档；同批里有切换时落到切换后的那一档，叠在显式补丁之上。
+    @Test func activeProfilePatchesResolveWhenTheBatchRuns() throws {
+        let base = Self.configuration.active.settings
+        let dim = ConfigurationIntent.updateActive(patch: .set(\.brightness, 1, field: .brightness, on: base))
+        let fast = ConfigurationIntent.updateActive(patch: .set(\.speed, 4, field: .speed, on: base))
+        let explicit = ConfigurationIntent.update(1, patch: .set(\.brightness, 3, field: .brightness, on: base))
+        #expect(ConfigurationIntent.updateActive(patch: ProfilePatch(base, fields: [])).isEmpty)
+
+        let merged = explicit.merging(dim).merging(fast)
+        #expect(merged.activePatch?.fields == [.brightness, .speed] && merged.patches[1]?.values?.brightness == 3)
+        let onCurrent = merged.resolved(currentProfile: 1)
+        #expect(onCurrent.activePatch == nil && onCurrent.patches.keys.sorted() == [1])
+        #expect(onCurrent.patches[1]?.values?.brightness == 1 && onCurrent.patches[1]?.fields == [.brightness, .speed])
+        #expect(merged.applied(to: Self.configuration).profile(1)?.brightness == 1)
+
+        let switched = dim.merging(.activate(2)).resolved(currentProfile: 1)
+        #expect(switched.activeProfile == 2 && switched.patches.keys.sorted() == [2])
+        let applied = dim.merging(.activate(2)).applied(to: Self.configuration)
+        #expect(applied.activeProfile == 2 && applied.profile(2)?.brightness == 1 && applied.profile(1)?.brightness == 4)
+    }
+
     @Test func devicesExecuteIndependentlyAndDoNotSharePatches() async throws {
         let probe = WriteProbe()
         var calls = probe.calls.makeAsyncIterator()

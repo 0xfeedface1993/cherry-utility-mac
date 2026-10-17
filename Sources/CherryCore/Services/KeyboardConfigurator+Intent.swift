@@ -13,13 +13,17 @@ extension KeyboardConfigurator {
             try Self.validate(profile: profile, model: model)
             try Self.validate(patch: patch, model: model)
         }
+        if let patch = intent.activePatch { try Self.validate(patch: patch, model: model) }
         if let profile = intent.activeProfile { try Self.validate(profile: profile, model: model) }
-        let operation: DiagnosticOperation = intent.patches.isEmpty && intent.activeProfile != nil ? .profileActivate : .configurationWrite
+        let activatesOnly = intent.patches.isEmpty && intent.activePatch == nil && intent.activeProfile != nil
+        let operation: DiagnosticOperation = activatesOnly ? .profileActivate : .configurationWrite
         return try await diagnostics.measure(operation, outcome: { (result: IntentResult) in result.written ? .success : .noChange }) {
             try await session(keyboard, model) { session in
                 let current = try await session.configuration(profileCount: model.profileCount)
-                let expected = intent.applied(to: current)
-                let changed = intent.patches.keys.sorted().flatMap { profile -> [(Int, [UInt8], Range<Int>)] in
+                // 未指定配置档的补丁按通道内读到的当前档落位，其他页面不能在读与写之间插入切换。
+                let resolved = intent.resolved(currentProfile: current.activeProfile)
+                let expected = resolved.applied(to: current)
+                let changed = resolved.patches.keys.sorted().flatMap { profile -> [(Int, [UInt8], Range<Int>)] in
                     guard let source = current.profile(profile), let target = expected.profile(profile) else { return [] }
                     return source.changedRanges(to: target.raw).map { (profile, target.raw, $0) }
                 }
@@ -34,10 +38,10 @@ extension KeyboardConfigurator {
                 let saved = try await diagnostics.measure(.configurationReadBack) {
                     try await session.configuration(profileCount: model.profileCount)
                 }
-                guard intent.activeProfile == nil || saved.activeProfile == expected.activeProfile else {
+                guard resolved.activeProfile == nil || saved.activeProfile == expected.activeProfile else {
                     throw CherryError.writeNotApplied("键盘未切换到指定配置档")
                 }
-                for (profile, patch) in intent.patches {
+                for (profile, patch) in resolved.patches {
                     guard let actual = saved.profile(profile), let target = expected.profile(profile),
                           ProfileField.differences(between: actual.settings, and: target.settings).isDisjoint(with: patch.fields) else {
                         throw CherryError.writeNotApplied("读回的配置与写入不一致")

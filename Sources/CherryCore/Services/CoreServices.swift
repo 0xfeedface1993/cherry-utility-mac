@@ -8,6 +8,8 @@ public struct CoreServices: Sendable {
     public let writer: KeyboardConfigurationWriter
     public let firmware: FirmwareUpdateService
     private let discovery: any KeyboardDiscoveryPort
+    /// 发现流里出现过的键盘，供自动化判断一个不在线的 ID 是「换了 USB 口」还是「已拔出」。
+    private let sightings = KeyboardSightings()
 
     public init(
         discovery: any KeyboardDiscoveryPort,
@@ -32,11 +34,12 @@ public struct CoreServices: Sendable {
 
     /// 设备列表更新：先让写入队列知道连接集合（断连使旧批次失效、拒绝旧设备的新请求），再发布给调用方。
     public func keyboardUpdates() -> AsyncStream<[KeyboardSummary]> {
-        let discovery = discovery, writer = writer
+        let discovery = discovery, writer = writer, sightings = sightings
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 for await list in discovery.keyboardUpdates() {
                     guard !Task.isCancelled else { break }
+                    sightings.record(list)
                     await writer.keyboardsUpdated(list)
                     continuation.yield(list)
                 }
@@ -54,15 +57,14 @@ extension CoreServices {
         presets: PresetLibrary, activity: FirmwareActivity? = nil, feed: ConfigurationChangeFeed = .init(),
         timing: KeyboardAutomation.Timing = .init(), clock: any Clock<Duration> = ContinuousClock()
     ) -> KeyboardAutomation {
-        let inspector = inspector, configurator = configurator, writer = writer
+        let inspector = inspector, writer = writer
         return KeyboardAutomation(
             discovery: discovery,
             snapshot: { try await inspector.vendorSnapshot(of: $0) },
             battery: { try await inspector.battery(of: $0) },
-            configuration: { try await configurator.configuration(of: $0) },
             apply: { try await writer.apply($0, on: $1) },
             presets: { try await presets.presets() },
-            feed: feed, activity: activity, timing: timing, clock: clock
+            feed: feed, activity: activity, sightings: sightings, timing: timing, clock: clock
         )
     }
 }

@@ -100,6 +100,24 @@ struct ControlServiceTests {
         #expect(denied.error?.code == "accessDenied")
     }
 
+    /// 线上的极端值不能让 App 在减 1 时溢出崩溃。
+    @Test func extremeNumbersAreRejectedWithoutCrashing() async throws {
+        let s = Self.stack()
+        for params in [ControlParams(profile: Int.min), ControlParams(speed: Int.min), ControlParams(profile: Int.min, speed: Int.min)] {
+            let method: ControlMethod = params.speed == nil ? .activateProfile : .update
+            let response = await Self.call(s.service, method, params)
+            #expect(response.error?.code == "invalidArgument", "\(params)")
+            #expect(response.error?.message.contains("-9223372036854775808") == true, "\(params)")
+        }
+        let preset = await Self.call(s.service, .applyPreset, ControlParams(profile: Int.min, preset: "x"))
+        #expect(preset.error?.code == "presetNotFound" || preset.error?.code == "invalidArgument")
+        let huge = await Self.call(s.service, .activateProfile, ControlParams(profile: Int.max))
+        #expect(huge.error == ControlFailure(code: "invalidArgument", message: "MX PIXIU 75 只有 3 个配置档，没有配置 9223372036854775807"))
+        let fast = await Self.call(s.service, .update, ControlParams(speed: Int.max))
+        #expect(fast.error?.message == "速度须为 1–5，收到 9223372036854775807")
+        #expect(await Self.call(s.service, .status).ok)
+    }
+
     @Test func modelCapabilitiesShapeTheProfiles() async throws {
         let nbl = try #require(await Self.call(Self.stack("nbl").service, .status).result?.status?.profiles?.first)
         #expect(nbl == ControlProfile(profile: 1))

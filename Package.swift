@@ -8,7 +8,7 @@ import PackageDescription
 //   CherryFeatures  – driving adapter: TCA reducers + SwiftUI views, talking to the core through dependency clients
 //   CherryControl   – local control protocol (Unix socket, line-delimited JSON): client + socket server, Foundation only
 //   CherryControlService – driving adapter: maps control requests to KeyboardAutomation inside the app process
-//   CherryCLI       – the `cherry` command, a thin client of the running app
+//   CherryCLI       – the `cherry` command, a thin client of the running app; `cherry mcp` is its MCP server (swift-sdk, CLI only)
 // The app target is the composition root that wires adapters into the feature clients.
 let package = Package(
     name: "CherryKit",
@@ -26,6 +26,9 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/pointfreeco/swift-composable-architecture", from: "1.26.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.8.0"),
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk", from: "0.12.1"),
+        // swift-sdk 的传输协议用到 `Logger`；版本由 swift-sdk 决定，这里只为能直接引用这个模块。
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
     ],
     targets: [
         .target(name: "CherryCore"),
@@ -51,12 +54,18 @@ let package = Package(
         .executableTarget(name: "CherryCLI", dependencies: [
             "CherryControl",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            .product(name: "MCP", package: "swift-sdk"),
+            .product(name: "Logging", package: "swift-log"),
         ]),
         .testTarget(name: "CherryControlTests", dependencies: ["CherryControl"]),
         .testTarget(name: "CherryControlServiceTests", dependencies: [
             "CherryControlService", "CherryControl", "CherryCore", "CherrySimulation",
         ]),
-        .testTarget(name: "CherryCLITests", dependencies: ["CherryCLI", "CherryControl"]),
+        .testTarget(name: "CherryCLITests", dependencies: [
+            "CherryCLI", "CherryControl", "CherryControlService", "CherryCore", "CherrySimulation",
+            .product(name: "MCP", package: "swift-sdk"),
+            .product(name: "Logging", package: "swift-log"),
+        ]),
         .target(name: "CherrySimulation", dependencies: ["CherryCore", "CherryAdapters"]),
         .testTarget(name: "CherryAdaptersTests", dependencies: ["CherryAdapters", "CherryCore"]),
         .testTarget(name: "CherrySimulationTests", dependencies: ["CherrySimulation", "CherryAdapters", "CherryCore"]),

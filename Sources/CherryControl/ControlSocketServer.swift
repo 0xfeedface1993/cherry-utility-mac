@@ -17,6 +17,8 @@ public final class ControlSocketServer: Sendable {
     public enum StartError: Error, Equatable, Sendable {
         /// 另一个 App 实例已在这个路径上应答。
         case alreadyRunning
+        /// 路径上已有一个不是 socket 的文件（例如 `CHERRY_CONTROL_SOCKET` 指错了）；不删除它。
+        case pathOccupied
         case pathTooLong
         case system(operation: String, code: Int32)
     }
@@ -41,7 +43,9 @@ public final class ControlSocketServer: Sendable {
 
     public func start() throws(StartError) {
         guard UnixSocket.fits(path) else { throw .pathTooLong }
-        if FileManager.default.fileExists(atPath: path) {
+        var existing = stat()
+        if lstat(path, &existing) == 0 {
+            guard existing.st_mode & S_IFMT == S_IFSOCK else { throw .pathOccupied }
             // 上次异常退出留下的 socket 文件没人应答，可以删除；有人应答说明 App 已在运行。
             if Self.answers(path) { throw .alreadyRunning }
             unlink(path)
@@ -190,7 +194,14 @@ final class ControlConnection: @unchecked Sendable {
             let count = Darwin.read(fd, &chunk, chunk.count)
             if count > 0 {
                 let received: [Data]
-                do { received = try buffer.append(Data(chunk[0..<count])) } catch { return closeOnQueue() }
+                do {
+                    received = try buffer.append(Data(chunk[0..<count]))
+                } catch {
+                    // 先说明原因再断开，客户端不会把它误判成 App 退出。
+                    let limit = ControlProtocol.maxLineLength / 1024
+                    reject(ControlFailure(code: "invalidRequest", message: "请求超过 \(limit) KiB 的上限"))
+                    return closeOnQueue()
+                }
                 for line in received {
                     if case .dropped = continuation.yield(line) { return closeOnQueue() }
                 }
@@ -202,6 +213,12 @@ final class ControlConnection: @unchecked Sendable {
                 return closeOnQueue()
             }
         }
+    }
+
+    /// 在 `queue` 上直接写一条失败响应（随后关闭连接，不经过 worker）。
+    private func reject(_ failure: ControlFailure) {
+        guard !closed, let data = try? ControlCoding.line(ControlResponse.failure(0, failure)) else { return }
+        _ = UnixSocket.writeAll(fd, data)
     }
 
     private func closeOnQueue() {

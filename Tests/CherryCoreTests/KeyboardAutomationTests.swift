@@ -27,7 +27,6 @@ final class ScriptedDiscovery: KeyboardDiscoveryPort, Sendable {
 final class AutomationProbe: Sendable {
     let base: KeyboardConfiguration
     private let intents = Mutex<[(ConfigurationIntent, KeyboardID)]>([])
-    private let reads = Mutex(0)
     private let failure = Mutex<CherryError?>(nil)
 
     init(activeProfile: Int = 1) {
@@ -39,25 +38,23 @@ final class AutomationProbe: Sendable {
     }
 
     var submitted: [(ConfigurationIntent, KeyboardID)] { intents.withLock { $0 } }
-    var readCount: Int { reads.withLock { $0 } }
     func fail(with error: CherryError?) { failure.withLock { $0 = error } }
 
     func automation(
         _ discovery: some KeyboardDiscoveryPort, presets: [ProfilePreset] = [], activity: FirmwareActivity? = nil,
-        feed: ConfigurationChangeFeed = .init(), battery: BatteryStatus? = nil
+        feed: ConfigurationChangeFeed = .init(), battery: BatteryStatus? = nil, sightings: KeyboardSightings = .init()
     ) -> KeyboardAutomation {
         KeyboardAutomation(
             discovery: discovery,
             snapshot: { [base] _ in VendorSnapshot(battery: battery, status: nil, configuration: base) },
             battery: { _ in try #require(battery) },
-            configuration: { [base] _ in self.reads.withLock { $0 += 1 }; return base },
             apply: { [base] intent, keyboard in
                 if let error = self.failure.withLock({ $0 }) { throw error }
                 self.intents.withLock { $0.append((intent, keyboard.id)) }
                 return intent.applied(to: base)
             },
             presets: { presets },
-            feed: feed, activity: activity, clock: ImmediateClock()
+            feed: feed, activity: activity, sightings: sightings, clock: ImmediateClock()
         )
     }
 }
@@ -118,6 +115,12 @@ struct KeyboardAutomationTests {
         #expect(try SettingsRequest.Color(parsing: "Random") == .random)
         #expect(try SettingsRequest.Color(parsing: "随机") == .random)
         #expect(throws: AutomationError.invalidColor("#12")) { try SettingsRequest.Color(parsing: "#12") }
+        // `UInt32(_:radix:)` 本身接受符号；颜色只认六个 ASCII 十六进制数字。
+        for bad in ["#+FF720", "+FF720", "-00000", "#FF 720", "ＦＦ７２００", "#GG0000", "#FF72000"] {
+            #expect(LEDColor(hex: bad) == nil, "\(bad)")
+            #expect(throws: AutomationError.invalidColor(bad)) { try SettingsRequest.Color(parsing: bad) }
+        }
+        #expect(LEDColor(hex: "#00d70f") == LEDColor(r: 0, g: 0xD7, b: 0x0F))
     }
 
     @Test func presetPatchTakesOnlyWhatTheModelAccepts() throws {
@@ -165,6 +168,24 @@ struct KeyboardAutomationTests {
         await #expect(throws: CherryError.deviceNotFound(absent)) { try await both.keyboard(absent) }
     }
 
+    @Test func aKeyboardSeenEarlierIsNotRetargetedToItsTwin() async throws {
+        let probe = AutomationProbe()
+        let twin = Self.keyboard(0x01E2, location: 2)
+        let sightings = KeyboardSightings()
+        sightings.record([Self.pixiu75, twin]) // 发现流先报告了两把，随后第一把被拔出
+        let automation = probe.automation(Self.discovery(twin), sightings: sightings)
+        await #expect(throws: CherryError.deviceNotFound(Self.pixiu75.id)) { try await automation.activate(profile: 0, on: Self.pixiu75.id) }
+        #expect(probe.submitted.isEmpty)
+        // 从没见过的 ID（保存的快捷指令、键盘换了 USB 口）仍回退到唯一的同型号键盘。
+        let moved = KeyboardID(vendorID: 0x046A, productID: 0x01E2, locationID: 0xAA)
+        #expect(try await automation.keyboard(moved) == twin)
+        // 自动化自己读到过的键盘也算见过。
+        let own = KeyboardSightings()
+        let reading = probe.automation(ScriptedDiscovery([[Self.pixiu75, twin], [Self.pixiu75, twin], [twin]]), sightings: own) // 首次读取含静默窗口后的复读
+        _ = try await reading.keyboards()
+        await #expect(throws: CherryError.deviceNotFound(Self.pixiu75.id)) { try await reading.keyboard(Self.pixiu75.id) }
+    }
+
     @Test func coldStartWaitsForDiscoveryToSettleOnce() async throws {
         let probe = AutomationProbe()
         let second = Self.keyboard(0x01E2, location: 2)
@@ -209,24 +230,24 @@ struct KeyboardAutomationTests {
 
     // MARK: - Writing
 
+    /// 不指定配置档时不先读当前档（B4：慢设备上并发写入各读一次会排队超时），补丁交给写入事务落到当前档。
     @Test func updateWritesOnlyRequestedFieldsToTheActiveProfile() async throws {
         let probe = AutomationProbe(activeProfile: 1)
         let automation = probe.automation(Self.discovery(Self.pixiu75))
         let result = try await automation.update(SettingsRequest(effect: "Breathing", brightness: 2), profile: nil, on: nil)
-        #expect(probe.readCount == 1)
         let (intent, id) = try #require(probe.submitted.first)
         #expect(id == Self.pixiu75.id && intent.activeProfile == nil)
-        #expect(intent.patches.keys.sorted() == [1])
-        #expect(intent.patches[1]?.fields == [.effect, .brightness])
+        #expect(intent.patches.isEmpty)
+        #expect(intent.activePatch?.fields == [.effect, .brightness])
         #expect(result.profile == 1 && result.settings?.effect == 2 && result.settings?.brightness == 2)
         #expect(result.settings?.speed == probe.base.profile(1)?.speed)
     }
 
-    @Test func explicitProfileSkipsTheReadAndColorsSetTheRandomFlag() async throws {
+    @Test func explicitProfileTargetsThatProfileAndColorsSetTheRandomFlag() async throws {
         let probe = AutomationProbe()
         let automation = probe.automation(Self.discovery(Self.pixiu75))
         let fixed = try await automation.update(SettingsRequest(color: .fixed(LEDColor(r: 0, g: 0x99, b: 0xFF))), profile: 2, on: nil)
-        #expect(probe.readCount == 0)
+        #expect(probe.submitted[0].0.activePatch == nil)
         #expect(probe.submitted[0].0.patches[2]?.fields == [.color, .randomColor])
         #expect(fixed.settings?.color == LEDColor(r: 0, g: 0x99, b: 0xFF) && fixed.settings?.randomColor == false)
         let random = try await automation.update(SettingsRequest(color: .random), profile: 0, on: nil)
@@ -309,12 +330,27 @@ struct KeyboardAutomationTests {
         let automation = probe.automation(Self.discovery(Self.pixiu75, Self.nbl), activity: activity)
         try await activity.during(Self.pixiu75.id) {
             await #expect(throws: AutomationError.firmwareUpdateInProgress) { try await automation.activate(profile: 0, on: Self.pixiu75.id) }
+            // 刷写期间键盘会重启，读取也不碰 0xFF1C。
+            await #expect(throws: AutomationError.firmwareUpdateInProgress) { try await automation.status(of: Self.pixiu75.id) }
             _ = try await automation.activate(profile: 0, on: Self.nbl.id)
-            _ = try await automation.status(of: Self.pixiu75.id)
+            _ = try await automation.status(of: Self.nbl.id)
         }
+        _ = try await automation.status(of: Self.pixiu75.id)
         #expect(!activity.isBusy(Self.pixiu75.id))
         _ = try await automation.activate(profile: 0, on: Self.pixiu75.id)
         #expect(probe.submitted.map(\.1) == [Self.nbl.id, Self.pixiu75.id])
+    }
+
+    /// 刷写进入重启阶段时键盘短暂离线：仍报升级中，刷写结束后才是「没有键盘」。
+    @Test func aRebootingKeyboardStillReportsTheFlash() async throws {
+        let activity = FirmwareActivity()
+        let automation = AutomationProbe().automation(ScriptedDiscovery([[]]), activity: activity)
+        try await activity.during(Self.pixiu75.id) {
+            await #expect(throws: AutomationError.firmwareUpdateInProgress) { try await automation.status(of: nil) }
+            await #expect(throws: AutomationError.firmwareUpdateInProgress) { try await automation.activate(profile: 0, on: Self.pixiu75.id) }
+        }
+        await #expect(throws: AutomationError.noKeyboard) { try await automation.status(of: nil) }
+        await #expect(throws: CherryError.deviceNotFound(Self.pixiu75.id)) { try await automation.status(of: Self.pixiu75.id) }
     }
 
     @Test func firmwareActivityClearsWhenTheFlashFails() async throws {

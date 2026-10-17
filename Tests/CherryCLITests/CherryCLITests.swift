@@ -27,6 +27,35 @@ struct CherryCLITests {
         }
     }
 
+    @Test func overlongArgumentsAreUsageErrors() {
+        let long = String(repeating: "x", count: 65)
+        for arguments in [["set", "--effect", long], ["set", "--color", long], ["status", "-k", long],
+                          ["preset", "apply", String(repeating: "预", count: 257)]] {
+            do {
+                _ = try Cherry.parseAsRoot(arguments)
+                Issue.record("应拒绝 \(arguments.prefix(2))")
+            } catch {
+                #expect(Cherry.exitCode(for: error) == .validationFailure, "\(arguments.prefix(2))")
+                #expect(Cherry.fullMessage(for: error).contains("过长"), "\(arguments.prefix(2))")
+            }
+        }
+        #expect(throws: Never.self) { _ = try Cherry.parseAsRoot(["preset", "apply", String(repeating: "预", count: 256)]) }
+    }
+
+    @Test func jsonErrorsCarryTheStableCode() throws {
+        let unavailable = Output.json(ErrorOutput(error: CLIError.appUnavailable("CHERRY Utility 没有运行（socket：/tmp/x）").failure))
+        #expect(unavailable.contains(#""code" : "appUnavailable""#) && unavailable.contains("没有运行"))
+        let failure = ControlFailure(code: "ambiguousKeyboard", message: "连接了多把键盘", candidates: [
+            ControlKeyboard(id: "046A:01E2@03100000", name: "CHERRY MX PIXIU 75", model: "MX PIXIU 75", transport: "USB", firmware: "0.1.1.7", configurable: true),
+        ])
+        let rejected = try JSONDecoder().decode([String: ControlFailure].self, from: Data(Output.json(ErrorOutput(error: CLIError.rejected(failure).failure)).utf8))
+        #expect(rejected["error"] == failure)
+        #expect(CLIError.failed("超时").failure.code == "clientError")
+        // watch --json 的错误与事件一样是一行。
+        let line = Output.jsonLine(ErrorOutput(error: CLIError.appUnavailable("CHERRY Utility 关闭了连接（可能已退出）").failure))
+        #expect(!line.contains("\n") && line.hasPrefix(#"{"error":{"code":"appUnavailable""#))
+    }
+
     @Test func subcommandsParse() throws {
         #expect((try Cherry.parseAsRoot(["profile", "2", "--json"]) as? ProfileCommand)?.profile == 2)
         #expect((try Cherry.parseAsRoot(["preset", "apply", "办公", "-p", "1"]) as? PresetCommand.Apply)?.preset == "办公")

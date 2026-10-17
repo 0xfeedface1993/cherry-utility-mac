@@ -141,7 +141,9 @@ struct ControlTransportTests {
         await #expect(throws: ControlClientError.unavailable) { try await blocking { _ = try ControlClient.connect(path: path) } }
 
         // 异常退出留下的 socket 文件：没人应答，新实例删除后照常监听。
-        FileManager.default.createFile(atPath: path, contents: Data())
+        let stale = try UnixSocket.make()
+        #expect(UnixSocket.withAddress(path, { bind(stale, $0, $1) }) == 0)
+        close(stale)
         try second.start()
         defer { second.stop() }
         #expect(try await blocking { try ControlClient.connect(path: path).call(.ping).ok })
@@ -170,22 +172,54 @@ struct ControlTransportTests {
         #expect(try await eventually { server.connectionCount == 0 })
     }
 
-    @Test func overlongLinesCloseTheConnection() async throws {
+    @Test func overlongLinesGetAnErrorBeforeTheConnectionCloses() async throws {
         let directory = SocketDirectory()
         let server = ControlSocketServer(path: directory.socket, handler: Probe().handler)
         try server.start()
         defer { server.stop() }
         let path = directory.socket
-        let outcome = try await blocking { () -> ControlClientError? in
+        let (reply, closed) = try await blocking { () -> (ControlResponse?, Bool) in
             let fd = try UnixSocket.make()
             defer { close(fd) }
-            guard UnixSocket.withAddress(path, { connect(fd, $0, $1) }) == 0 else { return .unavailable }
+            guard UnixSocket.withAddress(path, { connect(fd, $0, $1) }) == 0 else { throw ControlClientError.unavailable }
             UnixSocket.setTimeout(fd, option: SO_RCVTIMEO, .seconds(5))
             _ = UnixSocket.writeAll(fd, Data(repeating: 0x41, count: ControlProtocol.maxLineLength + 10))
-            var byte: UInt8 = 0
-            return read(fd, &byte, 1) == 0 ? .disconnected : nil
+            var buffer = LineBuffer()
+            var lines: [Data] = []
+            var chunk = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = read(fd, &chunk, chunk.count)
+                guard count > 0 else { break }
+                lines += try buffer.append(Data(chunk[0..<count]))
+            }
+            return (try lines.first.map { try ControlCoding.decode(ControlResponse.self, from: $0) }, true)
         }
-        #expect(outcome == .disconnected)
+        #expect(reply?.ok == false && reply?.error?.code == "invalidRequest" && reply?.error?.message.contains("64 KiB") == true)
+        #expect(closed)
+    }
+
+    /// 客户端在 `call` 里把服务端主动回的 id 0 失败当作这次调用的结果，而不是等到连接断开。
+    @Test func clientSurfacesServerInitiatedFailures() async throws {
+        let directory = SocketDirectory()
+        let server = ControlSocketServer(path: directory.socket, handler: Probe().handler)
+        try server.start()
+        defer { server.stop() }
+        let path = directory.socket
+        let response = try await blocking { () -> ControlResponse in
+            let client = try ControlClient.connect(path: path)
+            return try client.call(.applyPreset, ControlParams(preset: String(repeating: "x", count: 70_000)))
+        }
+        #expect(response.error?.code == "invalidRequest")
+    }
+
+    @Test func aRegularFileAtTheSocketPathIsLeftAlone() throws {
+        let directory = SocketDirectory()
+        FileManager.default.createFile(atPath: directory.socket, contents: Data("keep".utf8))
+        #expect(throws: ControlSocketServer.StartError.pathOccupied) {
+            try ControlSocketServer(path: directory.socket, handler: Probe().handler).start()
+        }
+        #expect(FileManager.default.contents(atPath: directory.socket) == Data("keep".utf8))
+        #expect(throws: ControlClientError.notASocket(directory.socket)) { try ControlClient.connect(path: directory.socket) }
     }
 }
 

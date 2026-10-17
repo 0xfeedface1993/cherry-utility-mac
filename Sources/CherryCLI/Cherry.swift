@@ -7,7 +7,7 @@ import Foundation
 ///
 /// 退出码：0 成功；2 用法错误；3 无法连接 App；4 键盘或参数被 App 拒绝；1 其它错误。
 @main
-struct Cherry: ParsableCommand {
+struct Cherry: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "cherry",
         abstract: "通过 CHERRY Utility 读取和设置 CHERRY 键盘。",
@@ -18,14 +18,18 @@ struct Cherry: ParsableCommand {
         version: "控制协议 v\(ControlProtocol.version)",
         subcommands: [
             StatusCommand.self, KeyboardsCommand.self, BatteryCommand.self, EffectsCommand.self, PresetsCommand.self,
-            ProfileCommand.self, SetCommand.self, PresetCommand.self, WatchCommand.self, VersionCommand.self,
+            ProfileCommand.self, SetCommand.self, PresetCommand.self, WatchCommand.self, VersionCommand.self, MCPCommand.self,
         ]
     )
 
-    static func main() {
+    static func main() async {
         do {
-            var command = try parseAsRoot()
-            try command.run()
+            var command = try await asyncParseAsRoot()
+            if var command = command as? AsyncParsableCommand {
+                try await command.run()
+            } else {
+                try command.run()
+            }
         } catch {
             // 用法错误统一用 2（ArgumentParser 默认 64）；帮助、版本与 ExitCode 照常处理。
             if exitCode(for: error) == .validationFailure {

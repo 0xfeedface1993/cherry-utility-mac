@@ -22,35 +22,34 @@ public struct KeyboardAutomation: Sendable {
 
     public typealias Snapshot = @Sendable (KeyboardSummary) async throws -> VendorSnapshot
     public typealias Battery = @Sendable (KeyboardSummary) async throws -> BatteryStatus
-    public typealias Read = @Sendable (KeyboardSummary) async throws -> KeyboardConfiguration
     public typealias Apply = @Sendable (ConfigurationIntent, KeyboardSummary) async throws -> KeyboardConfiguration
     public typealias Presets = @Sendable () async throws -> [ProfilePreset]
 
     private let discovery: any KeyboardDiscoveryPort
     private let snapshot: Snapshot
     private let readBattery: Battery
-    private let read: Read
     private let apply: Apply
     private let loadPresets: Presets
     private let feed: ConfigurationChangeFeed
     private let activity: FirmwareActivity?
     private let timing: Timing
     private let clock: any Clock<Duration>
+    private let sightings: KeyboardSightings
     private let discoveryState = DiscoveryState()
 
     public init(
-        discovery: any KeyboardDiscoveryPort, snapshot: @escaping Snapshot, battery: @escaping Battery, configuration: @escaping Read,
-        apply: @escaping Apply, presets: @escaping Presets, feed: ConfigurationChangeFeed = .init(), activity: FirmwareActivity? = nil,
-        timing: Timing = .init(), clock: any Clock<Duration> = ContinuousClock()
+        discovery: any KeyboardDiscoveryPort, snapshot: @escaping Snapshot, battery: @escaping Battery, apply: @escaping Apply,
+        presets: @escaping Presets, feed: ConfigurationChangeFeed = .init(), activity: FirmwareActivity? = nil,
+        sightings: KeyboardSightings = .init(), timing: Timing = .init(), clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.discovery = discovery
         self.snapshot = snapshot
         readBattery = battery
-        read = configuration
         self.apply = apply
         loadPresets = presets
         self.feed = feed
         self.activity = activity
+        self.sightings = sightings
         self.timing = timing
         self.clock = clock
     }
@@ -59,22 +58,29 @@ public struct KeyboardAutomation: Sendable {
 
     /// Connected keyboards of a known model.
     public func keyboards() async throws -> [KeyboardSummary] {
-        try await settledKeyboards().filter { $0.model != nil }
+        let known = try await settledKeyboards().filter { $0.model != nil }
+        sightings.record(known)
+        return known
     }
 
     /// The keyboard `id` names, or the only (configurable) one when `id` is nil.
     ///
     /// A saved shortcut keeps the ID it was made with; the location part changes when the keyboard moves to another
-    /// USB port, so an unknown ID still resolves when exactly one keyboard of that product is connected.
+    /// USB port, so an ID this app run has never seen still resolves when exactly one keyboard of that product is connected.
+    /// An ID that was connected earlier in this run and is gone now is reported missing: with two keyboards of the same
+    /// model, unplugging one must not retarget its commands to the other.
     public func keyboard(_ id: KeyboardID?) async throws -> KeyboardSummary {
         let known = try await keyboards()
         if let id {
             if let exact = known.first(where: { $0.id == id }) { return exact }
+            // 刷写进入重启阶段时键盘会离线一会儿，仍报升级中，而不是未找到。
+            if activity?.isBusy(id) == true { throw AutomationError.firmwareUpdateInProgress }
+            guard !sightings.contains(id) else { throw CherryError.deviceNotFound(id) }
             let sameProduct = known.filter { $0.id.vendorID == id.vendorID && $0.id.productID == id.productID }
             guard sameProduct.count == 1 else { throw CherryError.deviceNotFound(id) }
             return sameProduct[0]
         }
-        guard !known.isEmpty else { throw AutomationError.noKeyboard }
+        guard !known.isEmpty else { throw activity?.isAnyBusy == true ? AutomationError.firmwareUpdateInProgress : AutomationError.noKeyboard }
         if known.count == 1 { return known[0] }
         let configurable = known.filter(\.canConfigure)
         if configurable.count == 1 { return configurable[0] }
@@ -84,6 +90,7 @@ public struct KeyboardAutomation: Sendable {
     public func status(of id: KeyboardID?) async throws -> KeyboardStatusReport {
         let keyboard = try await keyboard(id)
         let model = try supportedModel(keyboard)
+        try requireIdle(keyboard)
         guard keyboard.canConfigure else { return KeyboardStatusReport(keyboard: keyboard, model: model, snapshot: nil) }
         return KeyboardStatusReport(keyboard: keyboard, model: model, snapshot: try await snapshot(keyboard))
     }
@@ -93,6 +100,7 @@ public struct KeyboardAutomation: Sendable {
         let model = try supportedModel(keyboard)
         guard model.hasBattery else { throw AutomationError.noBattery(model: model) }
         try Self.requireConfigurationInterface(keyboard, model)
+        try requireIdle(keyboard)
         return (keyboard, try await readBattery(keyboard))
     }
 
@@ -122,8 +130,7 @@ public struct KeyboardAutomation: Sendable {
     public func update(_ request: SettingsRequest, profile: Int?, on id: KeyboardID?) async throws -> AutomationResult {
         let (keyboard, model) = try await writableKeyboard(id)
         let patch = try Self.patch(for: request, model: model)
-        let target = try await targetProfile(profile, keyboard, model)
-        return try await submit(.update(target, patch: patch), profile: target, keyboard, model)
+        return try await submit(patch, to: profile, keyboard, model)
     }
 
     /// Loads a saved preset into `profile` (the active profile when nil), the same way the menu bar does.
@@ -135,8 +142,7 @@ public struct KeyboardAutomation: Sendable {
         guard preset.isCompatible(with: keyboard) else { throw AutomationError.presetIncompatible(name: preset.name) }
         let patch = preset.patch(for: model)
         guard !patch.isEmpty else { throw AutomationError.nothingToChange }
-        let target = try await targetProfile(profile, keyboard, model)
-        return try await submit(.update(target, patch: patch), profile: target, keyboard, model)
+        return try await submit(patch, to: profile, keyboard, model)
     }
 
     // MARK: - Rules
@@ -209,25 +215,29 @@ public struct KeyboardAutomation: Sendable {
         let keyboard = try await keyboard(id)
         let model = try supportedModel(keyboard)
         try Self.requireConfigurationInterface(keyboard, model)
-        if activity?.isBusy(keyboard.id) == true { throw AutomationError.firmwareUpdateInProgress }
+        try requireIdle(keyboard)
         return (keyboard, model)
     }
 
-    /// 未指定配置档时读一次当前档。读与写之间若有人在键盘上手动切档，会写到切换前的那一档。
-    private func targetProfile(_ profile: Int?, _ keyboard: KeyboardSummary, _ model: KeyboardModel) async throws -> Int {
-        if let profile {
-            try Self.validate(profile: profile, model: model)
-            return profile
-        }
-        return try await read(keyboard).activeProfile
+    /// 刷写固件期间键盘会重启，读写 0xFF1C 都可能与 OTA 交错，所以自动化的读取和写入都拒绝。
+    private func requireIdle(_ keyboard: KeyboardSummary) throws {
+        if activity?.isBusy(keyboard.id) == true { throw AutomationError.firmwareUpdateInProgress }
     }
 
+    /// 未指定配置档时不先读当前档：补丁在写入事务内落到当前档，慢设备上并发的写入不必各自排队读一次。
+    private func submit(_ patch: ProfilePatch, to profile: Int?, _ keyboard: KeyboardSummary, _ model: KeyboardModel) async throws -> AutomationResult {
+        if let profile { try Self.validate(profile: profile, model: model) }
+        let intent = profile.map { ConfigurationIntent.update($0, patch: patch) } ?? .updateActive(patch: patch)
+        return try await submit(intent, profile: profile, keyboard, model)
+    }
+
+    /// `profile` 为 nil 时目标是写入后的当前档（与 `ConfigurationIntent.activePatch` 的落位一致）。
     private func submit(
-        _ intent: ConfigurationIntent, profile: Int, _ keyboard: KeyboardSummary, _ model: KeyboardModel
+        _ intent: ConfigurationIntent, profile: Int?, _ keyboard: KeyboardSummary, _ model: KeyboardModel
     ) async throws -> AutomationResult {
         let saved = try await apply(intent, keyboard)
         feed.publish(ExternalConfigurationChange(keyboardID: keyboard.id, change: .configuration(saved)))
-        return AutomationResult(keyboard: keyboard, model: model, configuration: saved, profile: profile)
+        return AutomationResult(keyboard: keyboard, model: model, configuration: saved, profile: profile ?? saved.activeProfile)
     }
 
     /// 第一次调用时等待发现稳定；此后发现结果由 App 生命周期内的 IOKit 管理器实时维护，直接读取。

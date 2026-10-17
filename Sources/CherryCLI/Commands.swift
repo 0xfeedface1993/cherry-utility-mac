@@ -115,6 +115,8 @@ struct SetCommand: ParsableCommand {
                 || params.sleepSeconds != nil || params.deepSleepMinutes != nil else {
             throw ValidationError("至少指定一项：--effect、--brightness、--speed、--color、--sleep 或 --deep-sleep")
         }
+        try ArgumentLimit.check(effect, "--effect", ArgumentLimit.short)
+        try ArgumentLimit.check(color, "--color", ArgumentLimit.short)
     }
 
     var params: ControlParams {
@@ -136,6 +138,10 @@ struct PresetCommand: ParsableCommand {
         static let configuration = CommandConfiguration(commandName: "apply", abstract: "把预设载入配置档（与菜单栏的「载入预设」相同）。")
         @Argument(help: "预设名称或 ID（cherry presets 列出）。")
         var preset: String
+
+        func validate() throws {
+            try ArgumentLimit.check(preset, "预设名称", ArgumentLimit.presetName)
+        }
         @Option(name: .shortAndLong, help: "配置档编号（1 起）；不填时载入当前配置档。")
         var profile: Int?
         @OptionGroup var keyboard: KeyboardOption
@@ -181,14 +187,15 @@ struct WatchCommand: ParsableCommand {
                     throw CLIError.rejected(response.error ?? ControlFailure(code: "internalError", message: "监听失败"))
                 }
                 guard let change = result.change else {
-                    if !output.json, let message = result.message { FileHandle.standardError.write(Data((message + "\n").utf8)) }
+                    // 确认写到标准错误（不是 JSON 通道），调用方据此知道订阅已生效。
+                    if let message = result.message { FileHandle.standardError.write(Data((message + "\n").utf8)) }
                     continue
                 }
                 print(output.json ? Output.jsonLine(change) : Output.change(change, at: Date()))
                 fflush(stdout)
             }
         } catch let error as CLIError {
-            FileHandle.standardError.write(Data(("错误：" + error.message + "\n").utf8))
+            report(error, json: output.json, line: true)
             throw ExitCode(error.exitCode)
         }
     }

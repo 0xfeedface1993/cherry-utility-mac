@@ -56,6 +56,7 @@ struct CherryUtilityApp: App {
         // init 中取到的就是 SwiftUI 之后回调的 delegate 实例（2026-10-11 用最小程序验证过）。
         appDelegate.flushDiagnostics = { try? await runtime.flush() }
         appDelegate.stopControlServer = root.stopControlServer
+        appDelegate.installTerminationSignalHandler()
     }
 
     var body: some Scene {
@@ -100,8 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 由 App 在启动时注入；退出时关闭命令行 socket。
     var stopControlServer: (@Sendable () -> Void)?
     private var terminationTask: Task<Void, Never>?
-    private static let launchLog = Logger(subsystem: "online.odeployer.CherryUtility", category: "launch")
+    nonisolated private static let launchLog = Logger(subsystem: "online.odeployer.CherryUtility", category: "launch")
     private var launchEvent = "none"
+    private var terminationSignal: (any DispatchSourceSignal)?
 
     // 启动探针：记录是谁启动了 App（Finder / 登录项 / 为执行意图被系统拉起），用于判断能否在后台启动时不弹主窗口。
     // 只记录 Apple Event 编号和两个布尔值，不含用户数据。
@@ -115,7 +117,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let isDefault = (notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool).map(String.init) ?? "nil"
         let isActive = NSApp.isActive
         let event = launchEvent
-        Self.launchLog.info("launch event=\(event, privacy: .public) isDefaultLaunch=\(isDefault, privacy: .public) isActive=\(isActive, privacy: .public)")
+        // notice：info 级别不落盘，`log show` 事后读不到。
+        Self.launchLog.notice("launch event=\(event, privacy: .public) isDefaultLaunch=\(isDefault, privacy: .public) isActive=\(isActive, privacy: .public)")
+        installTerminationSignalHandler()
+    }
+
+    /// `kill` 或 launchd 发 SIGTERM 时，走与 ⌘Q 相同的退出流程：删除命令行 socket、写完诊断 journal。
+    /// 默认处理会直接结束进程，留下残留的 socket 文件。
+    func installTerminationSignalHandler() {
+        // App.init 时就装上，启动中途收到也走正常退出；完成启动时再设一次 SIG_IGN，以防期间被改回默认处理。信号源只建一次。
+        signal(SIGTERM, SIG_IGN)
+        guard terminationSignal == nil else { return }
+        terminationSignal = Self.makeTerminationSignalSource()
+    }
+
+    /// 信号在后台队列接收，再交给主 run loop 执行 `terminate:`：
+    /// - `terminate:` 会进入嵌套 run loop，等 `applicationShouldTerminate` 里的 MainActor 任务回复；在主队列的 block 里
+    ///   调用它，主队列一直被占着，那个任务排不上，进程就卡死；
+    /// - 闭包必须不带 MainActor 隔离（所以放在 nonisolated 的静态函数里），否则在后台队列执行时运行时隔离检查直接崩溃。
+    nonisolated private static func makeTerminationSignalSource() -> any DispatchSourceSignal {
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global(qos: .userInitiated))
+        source.setEventHandler {
+            launchLog.notice("SIGTERM received, terminating")
+            RunLoop.main.perform(inModes: [.default]) {
+                MainActor.assumeIsolated { NSApp.terminate(nil) }
+            }
+            CFRunLoopWakeUp(CFRunLoopGetMain())
+        }
+        source.resume()
+        return source
     }
 
     private static func fourCharacterCode(_ code: UInt32) -> String {

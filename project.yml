@@ -23,6 +23,14 @@ packages:
   ArgumentParser:
     url: https://github.com/apple/swift-argument-parser
     from: "1.8.0"
+  # `cherry mcp` 的 MCP 服务（只给命令行用，App 不链接）。
+  MCPSwiftSDK:
+    url: https://github.com/modelcontextprotocol/swift-sdk
+    from: "0.12.1"
+  # MCPTransport 直接引用 swift-sdk 传输协议里的 `Logger`；版本由 swift-sdk 决定。
+  SwiftLog:
+    url: https://github.com/apple/swift-log.git
+    from: "1.6.0"
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -121,6 +129,10 @@ targets:
         product: CherryControl
       - package: ArgumentParser
         product: ArgumentParser
+      - package: MCPSwiftSDK
+        product: MCP
+      - package: SwiftLog
+        product: Logging
     settings:
       base:
         PRODUCT_NAME: cherry
@@ -188,6 +200,10 @@ schemes:
         - package: CherryKit/CherryAdaptersTests
         - package: CherryKit/CherryFeaturesTests
         - package: CherryKit/CherrySimulationTests
+        - package: CherryKit/CherryControlTests
+        - package: CherryKit/CherryControlServiceTests
+        # CherryCLITests 依赖可执行目标 CherryCLI，Xcode 会顺带链接包里的 cherry，与上面的 cherry 工具 target 产物同名冲突；
+        # 它只在 `swift test` 里运行。
         - CherryUtilityUITests
         - CherryUtilityIntentsUITests
     archive:

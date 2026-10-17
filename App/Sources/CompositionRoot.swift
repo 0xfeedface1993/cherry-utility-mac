@@ -108,7 +108,7 @@ struct CompositionRoot {
         do {
             try controlServer.start()
         } catch .alreadyRunning {
-            Self.controlLog.info("control socket already served by another instance")
+            Self.controlLog.notice("control socket already served by another instance")
         } catch {
             Self.controlLog.error("control socket unavailable: \(String(describing: error), privacy: .public)")
         }
@@ -117,7 +117,10 @@ struct CompositionRoot {
     /// 退出时删除 socket 文件，命令行据此判断 App 已不在运行。
     var stopControlServer: @Sendable () -> Void {
         let server = controlServer
-        return { server?.stop() }
+        return {
+            server?.stop()
+            Self.controlLog.notice("control socket closed")
+        }
     }
 
     private static func simulationPreferences(experimental: String?) -> UserDefaults {

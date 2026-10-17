@@ -24,6 +24,7 @@
 按官方驱动适配、未经真机验证的型号：官方 CHERRY Utility 2.3.28.7 设备表中的全部键盘和 2.4G 接收器，共 60 个 PID（MX BOARD 1.0/1.1/2.0S/3.0S/3.1/8.0/10.0、G80-3000、MV 3.0、MX 2.0/3.0S/8.2/Xaga 无线、MX-LP 2.1/6.1、MX 8.3 / 8.3 Pro / 10.1、PIXIU 75 宝可梦、PIXIU 98/99、K63W Pro 等）。它们与 PIXIU 75 用同一套私有协议，所以都能读取信息、切换配置档、修改灯效；可修改的字段严格按官方驱动对该 PID 写入的字节限定（无背光型号只能切换配置档，有线型号没有电量与休眠）。固件刷写只开放给使用 Telink USB_OTA 升级包的 PIXIU 75 与 PIXIU 75 宝可梦版；其它型号的固件页显示官方最新版本和升级方式（Sonix ISP、Nordic 等）。证据与型号表见 [Docs/多型号兼容.md](Docs/多型号兼容.md)。鼠标、鼠标垫等其它 Cherry 设备只显示 USB 信息。
 
 - **快捷指令与 Spotlight**：提供 10 个 App Intents 动作，包括获取键盘状态与电量、切换配置档、设置灯效、亮度、速度、颜色和休眠、关闭背光、载入预设。它们出现在快捷指令 App 里，可以用于自动化；macOS 26 起也能在 Spotlight 中直接运行。Mac 上的 Siri 不能直接语音触发这些动作，但可以运行用户自建的快捷指令。固件相关操作不开放给自动化。详见下文「自动化」。
+- **命令行与 MCP**：App 包内附带 `cherry` 命令行，可在脚本里读取和设置键盘；`cherry mcp` 是 MCP 服务，注册到 Claude Code 或 Claude Desktop 后，可以用自然语言查看状态、切换配置档、调灯光。两者都经运行中的 App 执行，同样不含固件操作。
 - **设置**：登录时打开、启动时是否显示主窗口、菜单栏是否显示电量；应用内更新（Sparkle）；实验性功能。
 
 ## 下载与快速上手
@@ -178,7 +179,7 @@ App/                  组合根：创建适配器交给 CoreServices，通过 wi
 - 菜单栏轮询、各页面刷新、固件读取共用一个设备。`ExclusiveChannelProvider` 按（键盘, UsagePage）先进先出排队，不会再报「接口被占用」。它用 `Mutex` 实现：等待者被取消时要在同步回调里原子地出队，锁内只改表，`resume` 都在锁外。
 - 写配置走 `0x01` 开始 → `0x06` 写入 → `0x02` 结束。`0x02` 即使中途出错或被取消也会尽力发出。写入是「读-改-写」：只发送改动字段对应的字节，写完读回校验。
 
-## 自动化（快捷指令 / Spotlight）
+## 自动化（快捷指令 / Spotlight / 命令行 / MCP）
 
 动作在 App 进程内执行，与菜单栏、主窗口共用同一个设备通道和写入队列；写入后菜单栏和主窗口会立即刷新。不选「键盘」时使用唯一连接的键盘，不选「配置档」时修改当前配置档。
 
@@ -196,7 +197,7 @@ App/                  组合根：创建适配器交给 CoreServices，通过 wi
 
 - 需要已授予「输入监控」权限（与菜单栏相同）。
 - 系统为执行动作启动 App 时，可能会弹出主窗口。建议打开「设置 › 通用 › 登录时打开」，并关闭「启动时显示主窗口」。
-- Siri AI 目前不能调用第三方的设备控制动作；MCP 服务在规划中。调研结论与后续阶段见 [Docs/自动化接入方案.md](Docs/自动化接入方案.md)。
+- Siri AI 目前不能调用第三方的设备控制动作；AI 客户端可以用下面的 MCP 服务。调研结论与各阶段的实现见 [Docs/自动化接入方案.md](Docs/自动化接入方案.md)。
 
 ### 命令行 `cherry`
 
@@ -215,9 +216,47 @@ cherry preset apply 办公
 cherry keyboards | effects | presets | battery | watch | version
 ```
 
-- 加 `--json` 输出 JSON；`-k <ID>` 指定键盘，ID 由 `cherry keyboards` 列出。
+- 加 `--json` 输出 JSON，失败时也在标准输出给出 `{"error":{"code","message"}}`；`-k <ID>` 指定键盘，ID 由 `cherry keyboards` 列出。
 - 退出码：0 成功，2 用法错误，3 无法连接 App，4 键盘或参数被拒绝。
-- 端到端检查：`Scripts/verify-cli.sh`。它以模拟模式在后台启动 Debug 构建，socket 放在 /tmp 下的独立目录，不碰正式 App。
+- 端到端检查（都只用模拟键盘，socket 放在 /tmp 下的独立目录，不碰正式 App；运行时有看门狗，发现非模拟模式的实例或默认 socket 就中止）：
+  - `Scripts/verify-cli.sh --suites all`：以模拟模式在后台启动 Debug 构建，按套件检查命令行（各型号场景、预设、并发、`watch`、socket 生命周期）和经 stdio 的 `cherry mcp`（`Scripts/verify-mcp.py`）。
+  - `Scripts/verify-cross.sh`：驱动 `CrossEntryUITests` 与 `IntentFeedUITests`，核对菜单栏、快捷指令意图、命令行和 MCP 共用一个写入队列和变更流。
+  - `Scripts/verify-intents-metadata.py <App>`：核对构建产物里的 App Intents 元数据（动作、实体、枚举、App Shortcuts 短语）。
+
+### MCP（Claude Code / Claude Desktop）
+
+`cherry mcp` 是一个 stdio MCP 服务（服务名 `cherry-utility`），让 Claude Code、Claude Desktop 等 AI 客户端读取和设置键盘。每次工具调用都像命令行一样交给运行中的 App 执行；App 没运行时在后台启动它。不提供固件操作。
+
+注册到 Claude Code（对所有项目可用）：
+
+```bash
+claude mcp add --scope user cherry -- "/Applications/CHERRY Utility.app/Contents/MacOS/cherry" mcp
+```
+
+注册到 Claude Desktop：在 `~/Library/Application Support/Claude/claude_desktop_config.json` 的 `mcpServers` 里加入下面一项，然后重启 Claude Desktop。
+
+```json
+{
+  "mcpServers": {
+    "cherry": {
+      "command": "/Applications/CHERRY Utility.app/Contents/MacOS/cherry",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+| 工具 | 作用 |
+|---|---|
+| `list_keyboards` · `get_status` · `get_battery` · `list_lighting_effects` · `list_presets` | 只读：键盘列表、状态与各配置档、电量、该型号的灯效、本机预设 |
+| `switch_profile` | 切换配置档 1–3 |
+| `set_lighting` | 灯效（英文名枚举）、亮度 0–4、速度 1–5、颜色 `#RRGGBB` 或 `random`，只写指定的项 |
+| `set_sleep_timers` | 休眠秒数、深度休眠分钟数 |
+| `apply_preset` | 把预设载入配置档，会覆盖原有设置（标为破坏性操作） |
+
+- 不填 `keyboard` 时使用唯一连接的键盘，不填 `profile` 时修改当前配置档。
+- 结果包含中文说明和结构化 JSON；键盘或参数被拒绝时返回错误结果，说明与快捷指令、命令行相同。
+- 可选的 `.mcpb` 一键安装包暂未提供，原因见方案文档。
 
 ## 自定义固件
 

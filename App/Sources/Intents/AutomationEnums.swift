@@ -83,6 +83,11 @@ enum LightingEffectOption: String, AppEnum {
         .flame: DisplayRepresentation(title: "火焰", synonyms: ["Flame"]),
         .battle: DisplayRepresentation(title: "对战", synonyms: ["Battle"]),
     ]
+
+    /// 型号目录里的中文名（与 `caseDisplayRepresentations` 的标题相同，`AutomationCatalogCheck` 核对）。
+    var catalogName: String {
+        KeyboardModel.allLightingEffects.first { $0.englishName == rawValue }?.name ?? rawValue
+    }
 }
 
 /// 官方「收藏颜色」调色板，外加随机颜色与自定义十六进制颜色。

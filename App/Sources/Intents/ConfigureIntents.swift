@@ -55,7 +55,8 @@ struct SetLightingEffectIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let request = SettingsRequest(effect: effect.rawValue)
+        // 按中文名请求：型号没有这个灯效时，提示里显示用户在快捷指令里选的名字（例如「彩虹雨」）。
+        let request = SettingsRequest(effect: effect.catalogName)
         let result = try await automated { try await automation.update(request, profile: profile?.index, on: keyboard?.keyboardID) }
         return .result(dialog: "\(AutomationText.updated(result, request: request))")
     }
@@ -190,7 +191,12 @@ struct SetLightingColorIntent: AppIntent {
             guard let hex, !hex.trimmingCharacters(in: .whitespaces).isEmpty else {
                 throw $hex.needsValueError("请输入颜色，例如 #FF7200")
             }
-            choice = try await automated { try SettingsRequest.Color(parsing: hex) }
+            // 「自定义颜色」只接受 #RRGGBB；随机颜色有自己的选项。
+            let trimmed = hex.trimmingCharacters(in: .whitespaces)
+            guard let custom = LEDColor(hex: trimmed) else {
+                throw IntentFailure(message: AutomationError.invalidColor(hex).userMessage)
+            }
+            choice = .fixed(custom)
         default:
             choice = .fixed(LEDColor(hex: color.hex ?? "")!)
         }

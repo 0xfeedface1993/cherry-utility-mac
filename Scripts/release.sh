@@ -9,7 +9,7 @@
 #   (or NOTARY_KEYCHAIN_PROFILE) and SPARKLE_PRIVATE_KEY_FILE.
 # Output: .release/<version>-<build>/ with the archive, the stapled DMG, its .sha256 and the Sparkle signature.
 # 另有独立命令行 cherry-<version>.zip（只含通用二进制 cherry）及其 .sha256，与 DMG 分别提交公证；命令行二进制不能
-# staple，公证记录在 Apple 服务器端，用 spctl --assess --type execute 核对。按 Packaging/homebrew/ 的模板渲染
+# staple，公证记录在 Apple 服务器端，用 spctl --assess --type open（主签名）与 codesign --check-notarization 核对。按 Packaging/homebrew/ 的模板渲染
 # cherry-utility.rb 与 cherry-cli.rb（版本与 sha256 已填好），可用 Scripts/verify-cask.sh 校验。
 # CHERRY_RELEASE_OUTPUT overrides that folder; CHERRY_DERIVED_DATA reuses an earlier run's build cache
 # (default <output>/DerivedData, a clean universal build that takes several minutes).
@@ -216,9 +216,15 @@ if (( notarize )); then
   spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
 
   # 命令行二进制不能 staple：公证记录只在 Apple 服务器端，Gatekeeper 联网查询；刚通过时可能要稍等才查得到。
+  # `spctl --type execute` 只评估 App 包，对单独的可执行文件总是报「does not seem to be an app」；
+  # 用 open 类型按主签名评估（要求来源是 Notarized Developer ID），再由 codesign 向 Apple 查询公证记录。
   notarize_file "$cli_zip" "$out/notary-submission-cli.json" "$out/notary-log-cli.json"
   for attempt in 1 2 3 4 5 6; do
-    spctl --assess --type execute --verbose=2 "$cli_check/cherry" && break
+    # 先取得输出再匹配：脚本开了 pipefail，`spctl | grep -q` 在 grep 提前退出时整条管道会算失败。
+    assessment="$(spctl --assess --type open --context context:primary-signature --verbose=2 "$cli_check/cherry" 2>&1 || true)"
+    print -r -- "$assessment"
+    [[ "$assessment" == *"source=Notarized Developer ID"* ]] \
+      && codesign --verify -R=notarized --check-notarization "$cli_check/cherry" && break
     (( attempt < 6 )) || { print -u2 "Gatekeeper does not accept the notarized cherry"; exit 1; }
     print "Gatekeeper 暂未查到 cherry 的公证记录，10 秒后重试"
     sleep 10

@@ -258,6 +258,7 @@ gate "App 已公证（spctl --assess --type execute）" spctl --assess --type ex
 gate "DMG 附有公证票据（stapler validate）" xcrun stapler validate "$dmg"
 gate "DMG 通过 Gatekeeper（spctl --assess --type open）" spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
 gate "zip 里的 cherry 已公证（codesign --check-notarization，向 Apple 服务器查询）" codesign --verify -R=notarized --check-notarization "$zip_cli"
-gate "zip 里的 cherry 通过 Gatekeeper（spctl --assess --type execute）" spctl --assess --type execute --verbose=2 "$zip_cli"
+# spctl --type execute 只评估 App 包，单独的可执行文件按主签名用 open 类型评估。
+gate "zip 里的 cherry 通过 Gatekeeper（spctl --assess --type open，主签名）" spctl --assess --type open --context context:primary-signature --verbose=2 "$zip_cli"
 
 finish || exit 1

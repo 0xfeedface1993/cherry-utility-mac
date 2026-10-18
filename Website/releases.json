@@ -4,6 +4,29 @@
   "minimumSystemVersion": "15.0",
   "releases": [
     {
+      "version": "1.2.0",
+      "notes": [
+        "快捷指令与 Spotlight：新增 10 个动作（读取状态与电量、切换配置档、设置灯效 / 亮度 / 速度 / 颜色 / 休眠、载入预设），可以放进快捷指令自动化，也能在 Spotlight 里直接运行。",
+        "命令行工具 cherry：可以在官网单独下载；CHERRY Utility 运行时经由它执行，没运行时直接连接键盘。",
+        "cherry mcp：让 Claude Code、Claude Desktop 等 AI 客户端读取和设置键盘，不提供固件操作。",
+        "新增「设置 › 自动化」：命令行与 MCP 的开关和调用记录，一键安装 cherry、添加到 Claude Desktop。",
+        "修复关掉「启动时显示主窗口」后点程序坞图标打不开主窗口；Finder 与 Spotlight 里显示为「CHERRY Utility」。",
+        "自动化调用更省资源：写入不再重绘菜单栏图标，cherry mcp 空闲时不再占用 CPU。"
+      ],
+      "build": 4,
+      "date": "2026-10-18",
+      "published": "2026-10-18T15:33:50+00:00",
+      "dmg": "CherryUtility-1.2.0.dmg",
+      "length": 14561478,
+      "sha256": "d84b859fdc25abbcbe8c9f1162fe2649bd57768e44b88051b9049ab4b4658038",
+      "edSignature": "sbUyCTBnyQ3ymtqRwRREtMp5obxNmpubdFbVUA3O3gSflmtwSgQsFcb89ooC/urfvwbbunjraKWpxXFJ4r3nDA==",
+      "cliZip": "cherry-1.2.0.zip",
+      "cliLength": 4266518,
+      "cliSha256": "2146bde37aadb413ab49f556391cb2eabc520a3a554cedca46b600910c1dffb9",
+      "minimumSystemVersion": "15.0",
+      "notarized": true
+    },
+    {
       "version": "1.1.0",
       "notes": [
         "支持更多 CHERRY 键盘：按官方驱动数据适配 MX BOARD、G80、PIXIU 98 / 99、MX 8.3 / 10.1 等有线、无线键盘和 2.4G 接收器，界面只显示该型号支持的功能。",

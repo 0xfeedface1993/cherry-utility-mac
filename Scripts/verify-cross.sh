@@ -300,7 +300,8 @@ xf06() {
   prepare_data x6
   ui_test XF-06 CherryUtilityUITests/CrossEntryUITests/testFlashBlocksADirectCommandLine
   wait_for_app 180 || { record XF-06-实例启动 FAIL 0 "UI 用例启动的实例没有在 socket 上应答"; ui_finish XF-06 120; return; }
-  flashing() { grep -qs firmwareUpdate "$DATA"/Locks/*.lock(N); }
+  # 锁文件在 App 第一次打开设备会话时才出现；没有文件时不能让 grep 去读标准输入（会一直等下去）。
+  flashing() { local files=("$DATA"/Locks/*.lock(N)); (( ${#files} )) && grep -qs firmwareUpdate "${files[@]}"; }
   if wait_for 90 flashing; then record XF-06-锁文件出现刷写标记 PASS 0 ""; else record XF-06-锁文件出现刷写标记 FAIL 0 "90 秒内没有出现"; fi
   check XF-06-刷写中直连写入被拒 4 '"firmwareUpdateInProgress"' "" -- cherry_direct "$DATA" set --brightness 1 --json --direct
   check XF-06-刷写中直连读取被拒 4 '"firmwareUpdateInProgress"' "" -- cherry_direct "$DATA" status --json --direct

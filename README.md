@@ -318,6 +318,10 @@ claude mcp add --scope user cherry -- /Applications/CherryUtility.app/Contents/M
 
 写入范围限定在灯效、亮度、速度、颜色、休眠这几个字段，其余字节原样保留。工作模式（有线/无线）只能读取，切换要在键盘上操作，协议里没有找到对应的写命令。
 
+## CPU 与内存（2026-10-18）
+
+以 Release 构建、模拟键盘测了常驻、开窗、自动化负载、cherry 直连和 cherry mcp 空闲，并用 Instruments 找热点：cherry mcp 不再轮询标准输入（空闲 CPU 约 1% → 0，唤醒每秒约 106 次 → 0），自动化写入不再重绘菜单栏图标，调用记录改为原地更新；每次 MCP 调用的 App CPU 约 −40%～−47%，读写延迟降低一半以上。开窗内存约一半是系统的 GPU 资源，没有发现泄漏。方法、数据与复现命令见 [CPU 与内存优化](Docs/CPU与内存优化-20261018.md)，脚本为 `Scripts/run-perf.sh`、`analyze-perf-trace.py`、`compare-perf.py`。
+
 ## 菜单栏性能验证
 
 菜单 / 信息页共享已验证的配置读回，编辑页保留本地草稿；快速灯效意图只保留一个待执行项，固件目录由适配器缓存 5 分钟。自动化与指标见 [菜单栏性能优化与验证](Docs/菜单栏性能优化与验证.md)，可使用 `Scripts/run-menu-profile.py` / `run-menu-idle.py` 对指定 Release 产品复测。模拟 UI 三次对比 CPU 权重降低 46.8%；hitch 尚缺有效帧数据，不能将空表认作不卡顿。

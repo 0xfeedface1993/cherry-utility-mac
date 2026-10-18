@@ -88,7 +88,7 @@ struct CherryUtilityApp: App {
         MenuBarExtra {
             MenuBarContent(store: store.scope(state: \.menuBar, action: \.menuBar))
         } label: {
-            MenuBarLabel(store: store.scope(state: \.menuBar, action: \.menuBar))
+            MenuBarLabelContent(store: store.scope(state: \.menuBar, action: \.menuBar), appDelegate: appDelegate)
         }
         .menuBarExtraStyle(.window)
     }
@@ -166,6 +166,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     /// Closing the window keeps the status item (battery, quick lighting) alive.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// 由菜单栏图标的视图注入：它从启动起一直存在，能拿到 SwiftUI 的 `openWindow`。
+    var openMainWindow: (@MainActor () -> Void)?
+
+    /// 点程序坞图标（或对运行中的 App 再 `open` 一次）时，没有能当主窗口的窗口就打开主窗口。启动时跳过了主窗口
+    /// （`--background`，或关掉「启动时显示主窗口」）时 SwiftUI 不会自己打开它。菜单栏的图标和面板不算主窗口。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        let hasMainCapableWindow = sender.windows.contains { ($0.isVisible || $0.isMiniaturized) && $0.canBecomeMain }
+        guard !hasMainCapableWindow, let openMainWindow else { return true }
+        openMainWindow()
+        return false
+    }
+}
+
+/// 菜单栏图标；顺带把打开主窗口的方式交给 AppDelegate，供点程序坞图标时使用。
+private struct MenuBarLabelContent: View {
+    let store: StoreOf<MenuBarFeature>
+    let appDelegate: AppDelegate
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        MenuBarLabel(store: store)
+            .onAppear {
+                let openWindow = openWindow
+                appDelegate.openMainWindow = { openWindow(id: CherryUtilityApp.mainWindowID) }
+            }
+    }
 }
 
 /// Main window content; bridges the sidebar's diagnostics button to SwiftUI window management.

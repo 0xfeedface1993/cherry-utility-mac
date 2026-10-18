@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// Base class of the UI tests. Every test launches the app against the in-memory simulated PIXIU 75
@@ -11,8 +12,13 @@ class CherryUITestCase: XCTestCase {
     /// `nil` launches against real hardware. `experimental` lists hidden features to turn on (`customFirmware`);
     /// in simulation they live in a throwaway preferences suite, so the real app's settings are untouched.
     /// `environment` adds launch variables (e.g. the local update feed of `SettingsUITests`).
+    /// `arguments` are passed to the app; without `expectsMainWindow` (e.g. `--background`) the launch does not wait
+    /// for the main window.
     @discardableResult
-    func launch(_ scenario: String? = "pixiu75", experimental: [String] = [], environment extra: [String: String] = [:]) -> XCUIApplication {
+    func launch(
+        _ scenario: String? = "pixiu75", experimental: [String] = [], environment extra: [String: String] = [:],
+        arguments: [String] = [], expectsMainWindow: Bool = true
+    ) -> XCUIApplication {
         continueAfterFailure = false
         let environment = ProcessInfo.processInfo.environment
         let app = environment["CHERRY_PROFILE_APP"].map { XCUIApplication(url: URL(fileURLWithPath: $0)) } ?? XCUIApplication()
@@ -22,6 +28,7 @@ class CherryUITestCase: XCTestCase {
             app.launchEnvironment["CHERRY_EXPERIMENTAL"] = experimental.joined(separator: ",")
         }
         app.launchEnvironment.merge(extra) { _, new in new }
+        app.launchArguments = arguments
         if let output = environment["CHERRY_PROFILE_OUTPUT"] {
             app.launchEnvironment["CHERRY_DIAGNOSTIC_MODE"] = "profile"
             app.launchEnvironment["CHERRY_DIAGNOSTIC_DIR"] = output + "/journal"
@@ -29,8 +36,29 @@ class CherryUITestCase: XCTestCase {
         app.launch()
         self.app = app
         addTeardownBlock { @MainActor in app.terminate() }
-        XCTAssertTrue(app.windows["main"].waitForExistence(timeout: 15), "主窗口没有出现")
+        if expectsMainWindow {
+            XCTAssertTrue(app.windows["main"].waitForExistence(timeout: 15), "主窗口没有出现")
+        }
         return app
+    }
+
+    /// 相当于点程序坞图标：经 LaunchServices 再「打开」一次正在运行的 App，系统给它发 reopen 事件（与程序坞、
+    /// `open -a` 相同）。万一 App 已经退出，这次打开会启动新实例，所以带上本次启动的环境变量（模拟场景），
+    /// 绝不会以真机模式启动。
+    func reopenLikeTheDock(file: StaticString = #filePath, line: UInt = #line) {
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: "online.odeployer.CherryUtility")
+            .filter { !$0.isTerminated }
+        guard app.launchEnvironment["CHERRY_SIMULATION"] != nil, running.count == 1, let url = running[0].bundleURL else {
+            return XCTFail("应当只有本用例启动的一个模拟实例在运行，实际 \(running.count) 个", file: file, line: line)
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.environment = app.launchEnvironment
+        let opened = expectation(description: "reopen")
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
+            if let error { XCTFail("打开 App 失败：\(error)") }
+            opened.fulfill()
+        }
+        wait(for: [opened], timeout: 10)
     }
 
     var window: XCUIElement { app.windows["main"] }

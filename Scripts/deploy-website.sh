@@ -58,6 +58,12 @@ if latest["status"] == "published":
     dmg = root / "downloads" / latest["dmg"].rsplit("/", 1)[1]
     if not dmg.is_file() or dmg.stat().st_size != latest["length"]:
         sys.exit(f"missing or wrong-size DMG for the published release: {dmg.name}")
+# 页面和 cask cherry-cli 的 livecheck 指向的命令行 zip 也必须在。
+cli = latest.get("cli")
+if cli:
+    zip_path = root / "downloads" / cli["zip"].rsplit("/", 1)[1]
+    if not zip_path.is_file() or zip_path.stat().st_size != cli["length"]:
+        sys.exit(f"missing or wrong-size command-line zip: {zip_path.name}")
 for required in ("index.html", "appcast.xml", "styles.css"):
     if not (root / required).is_file():
         sys.exit(f"missing {required}")

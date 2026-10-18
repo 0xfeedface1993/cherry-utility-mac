@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""检查构建产物里的 App Intents 元数据（AI-20）。不启动 App。
+"""检查构建产物里的 App Intents 元数据（AI-20）和显示名（AI-21）。不启动 App。
 
     Scripts/verify-intents-metadata.py <CherryUtility.app> [<另一个构建的 CherryUtility.app>] [--results <results.tsv>]
 
 检查：10 个动作、3 个实体、5 个枚举（取值数 3/5/5/16/12）、9 个 App Shortcut；每条短语都含 ${applicationName}，
 最多一个其他参数且是该意图的枚举或实体参数，没有重复短语；参数摘要包含全部必填参数（Spotlight 可直接运行）；
-不打开 App、以后台模式运行；没有面向 Siri AI 的 schema；Resources 下只有 zh-Hans.lproj。给两个 App 时，两者元数据一致。
+不打开 App、以后台模式运行；没有面向 Siri AI 的 schema；Resources 下只有 zh-Hans.lproj（多一个 en.lproj，英文系统上
+Sparkle 和系统对话框就会变成英文）。给两个 App 时，两者元数据一致。
+AI-21：Finder、Spotlight 和快捷指令动作库显示「CHERRY Utility」。系统只在未本地化的 CFBundleDisplayName 与包的文件名
+一致时才用 zh-Hans.lproj/InfoPlist.strings 里的名称；Sparkle 的安装进度窗口读未本地化的 SUBundleName。
 """
 
 import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 
 parser = argparse.ArgumentParser()
@@ -25,6 +29,7 @@ ACTIONS = {"GetKeyboardStatusIntent", "GetBatteryIntent", "SwitchProfileIntent",
            "TurnOffBacklightIntent", "SetLightingSpeedIntent", "SetLightingColorIntent", "SetSleepTimersIntent", "ApplyPresetIntent"}
 ENUMS = {"ProfileSlot": 3, "BrightnessLevel": 5, "SpeedLevel": 5, "LightingEffectOption": 16, "LightingColorOption": 12}
 ENTITIES = {"KeyboardEntity", "KeyboardStatusEntity", "PresetEntity"}
+DISPLAY_NAME = "CHERRY Utility"
 
 
 def report(app, check_id, ok, detail=""):
@@ -36,6 +41,35 @@ def report(app, check_id, ok, detail=""):
     print(f"{status}  [metadata/{label}] {check_id}" + (f"（{detail}）" if detail and not ok else ""))
     if results:
         results.write(f"metadata/{label}\t{check_id}\t{status}\t0\t{'' if ok else detail}\n")
+
+
+def plist(path):
+    """Info.plist 与 Xcode 编译后的 .strings（UTF-16 文本或二进制）都交给 plutil 读。"""
+    if not os.path.exists(path):
+        return {}
+    output = subprocess.run(["plutil", "-convert", "json", "-o", "-", path], capture_output=True, text=True, check=True).stdout
+    return json.loads(output)
+
+
+def finder_name(app):
+    """FileManager.displayName(atPath:)，与 Finder 显示的名称相同（LaunchServices 按包的修改时间刷新缓存）。"""
+    script = 'ObjC.import("Foundation"); function run(argv) { return $.NSFileManager.defaultManager.displayNameAtPath(argv[0]).js }'
+    result = subprocess.run(["osascript", "-l", "JavaScript", "-e", script, os.path.abspath(app)], capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else f"osascript 失败：{result.stderr.strip()}"
+
+
+def check_display_name(app):
+    info = plist(os.path.join(app, "Contents/Info.plist"))
+    strings = plist(os.path.join(app, "Contents/Resources/zh-Hans.lproj/InfoPlist.strings"))
+    stem = os.path.splitext(os.path.basename(os.path.normpath(app)))[0]
+    report(app, "AI-21 Info.plist 的 CFBundleDisplayName 与文件名一致", info.get("CFBundleDisplayName") == stem,
+           f"{info.get('CFBundleDisplayName')!r}，文件名 {stem!r}")
+    report(app, "AI-21 LSHasLocalizedDisplayName", info.get("LSHasLocalizedDisplayName") is True, info.get("LSHasLocalizedDisplayName"))
+    report(app, "AI-21 zh-Hans 的 CFBundleDisplayName", strings.get("CFBundleDisplayName") == DISPLAY_NAME, strings.get("CFBundleDisplayName"))
+    report(app, "AI-21 zh-Hans 的 CFBundleName", strings.get("CFBundleName") == DISPLAY_NAME, strings.get("CFBundleName"))
+    report(app, "AI-21 SUBundleName（Sparkle 安装进度）", info.get("SUBundleName") == DISPLAY_NAME, info.get("SUBundleName"))
+    name = finder_name(app)
+    report(app, "AI-21 Finder 显示名", name == DISPLAY_NAME, name)
 
 
 def load(app):
@@ -82,7 +116,8 @@ def check(app):
         report(app, f"AI-20 {identifier} 没有 Siri AI schema", not action.get("assistantDefinedSchemas"), action.get("assistantDefinedSchemas"))
     report(app, "AI-20 没有 assistantIntents", not data.get("assistantIntents"), data.get("assistantIntents"))
     lprojs = sorted(name for name in os.listdir(os.path.join(app, "Contents/Resources")) if name.endswith(".lproj"))
-    report(app, "AI-20 只有 zh-Hans.lproj", lprojs in ([], ["zh-Hans.lproj"]), lprojs)
+    report(app, "AI-20 只有 zh-Hans.lproj", lprojs == ["zh-Hans.lproj"], lprojs)
+    check_display_name(app)
     return data
 
 

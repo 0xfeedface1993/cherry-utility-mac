@@ -1,6 +1,7 @@
 import AppIntents
 import CherryCore
 import CherryFeatures
+import CherryPresentation
 import Foundation
 
 /// 已连接（或快捷指令里保存过）的键盘。ID 为 `046A:01E2@03100000`；换 USB 口后同型号唯一时仍能找到。

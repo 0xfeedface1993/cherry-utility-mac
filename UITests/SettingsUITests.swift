@@ -5,14 +5,6 @@ import XCTest
 /// 本地 appcast（Debug 构建才认这个变量；Sparkle 只接受 http(s)，所以由用例在 127.0.0.1 上提供），只检查、不下载也不安装；Sparkle 写入的 `SU*` 偏好在 App 退出时还原。
 @MainActor
 final class SettingsUITests: CherryUITestCase {
-    private func openSettings(tab: String) -> XCUIElement {
-        app.typeKey(",", modifierFlags: .command)
-        let tabButton = app.toolbars.buttons[tab].firstMatch
-        XCTAssertTrue(tabButton.waitForExistence(timeout: 5), "设置窗口没有标签「\(tab)」")
-        tabButton.click()
-        return app.windows["com_apple_SwiftUI_Settings_window"]
-    }
-
     /// UI-100 开启「自定义固件」必须勾选风险确认；开启后侧栏出现该分区，关闭后再次隐藏。
     func testEnablingCustomFirmwareRequiresRiskConfirmation() {
         launch()

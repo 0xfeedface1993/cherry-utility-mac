@@ -2,7 +2,10 @@
 # 跨入口检查 XF-02 … XF-04：UI 测试操作菜单栏、主窗口和意图，本脚本在 shell 一侧运行 cherry、cherry mcp 和 watch。
 # UI 测试经 TEST_RUNNER_CHERRY_E2E_SOCKET 拿到 socket 路径，以它启动模拟实例；runner 在沙盒里，双方只靠键盘状态握手。
 #
-#   Scripts/verify-cross.sh [--run-dir <目录>] [--only XF-02,XF-03,XF-04] [<CherryUtility.app>]
+#   Scripts/verify-cross.sh [--run-dir <目录>] [--only XF-02,XF-03,XF-04,XF-05,XF-06,XF-07] [<CherryUtility.app>]
+#
+# XF-05 起 UI 用例改用数据目录（TEST_RUNNER_CHERRY_E2E_DATA_DIR）：App 在 <数据目录>/control.sock 上监听，模拟键盘的配置存在
+# 共享文件里，脚本用 cherry_direct（带 CHERRY_SIMULATION 与同一个数据目录）经由 App 或直连同一把模拟键盘。
 #
 # 先 build-for-testing（DerivedData 在 ~/Library/Developer/Xcode/DerivedData/CherryUtility-automation）。
 # 结果包先写在 DerivedData 下（测试产物不放 ~/Downloads，否则会弹「访问下载文件夹」的授权），结束后复制到运行目录。
@@ -11,7 +14,7 @@ set -uo pipefail
 repo="${0:A:h:h}"
 source "$repo/Scripts/e2e-lib.sh"
 
-run_dir="" only="XF-02,XF-03,XF-04"
+run_dir="" only="XF-02,XF-03,XF-04,XF-05,XF-06,XF-07"
 while (( $# )); do
   case "$1" in
     --run-dir) run_dir="$2"; shift 2 ;;
@@ -23,7 +26,7 @@ derived="$HOME/Library/Developer/Xcode/DerivedData/CherryUtility-automation"
 app="${1:-$derived/Build/Products/Debug/CherryUtility.app}"
 run_dir="${run_dir:-$repo/build/cross-e2e/$(date +%Y%m%d-%H%M%S)}"
 e2e_init "$run_dir" "$app"
-typeset -g UI_PID="" SOCK=""
+typeset -g UI_PID="" SOCK="" DATA=""
 results="$derived/e2e-results/$(date +%Y%m%d-%H%M%S)-$$"
 mkdir -p "$results"
 trap '[[ -n "$UI_PID" ]] && kill "$UI_PID" 2>/dev/null; e2e_cleanup' EXIT
@@ -34,7 +37,7 @@ print "记录: $E2E_RUN"
 # ui_test <ID> <-only-testing 目标>：后台运行一个 UI 用例，$UI_PID 是 xcodebuild。
 ui_test() {
   rm -rf "$results/$1.xcresult"
-  ( TEST_RUNNER_CHERRY_E2E_SOCKET="$SOCK" exec xcodebuild -project "$repo/CherryUtility.xcodeproj" -scheme CherryUtility \
+  ( TEST_RUNNER_CHERRY_E2E_SOCKET="$SOCK" TEST_RUNNER_CHERRY_E2E_DATA_DIR="$DATA" exec xcodebuild -project "$repo/CherryUtility.xcodeproj" -scheme CherryUtility \
       -destination 'platform=macOS,arch=arm64' -skipMacroValidation -derivedDataPath "$derived" test-without-building \
       -only-testing:"$2" -resultBundlePath "$results/$1.xcresult" > "$E2E_RUN/$1-xcodebuild.txt" 2>&1 ) &
   UI_PID=$!
@@ -226,6 +229,109 @@ xf04() {
   events_expect XF-04-插回后watch收到事件 "$dir/watch.ndjson" \
     'len(e) >= 2 and active(e[0])["brightness"] == 2 and active(e[-1])["brightness"] == 3'
   ui_finish XF-04 120
+}
+
+# mcp_call_data <数据目录> <工具> <参数 JSON>：不指定 socket，带模拟键盘与数据目录运行一次 cherry mcp（经由 App 或直连）。
+# 打印 "ok" 或错误码。
+mcp_call_data() {
+  python3 -I - "$E2E_CLI" "$1" "$2" "$3" <<'PY'
+import json, subprocess, sys
+cli, data, tool, arguments = sys.argv[1:5]
+p = subprocess.Popen([cli, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                     env={"CHERRY_SIMULATION": "pixiu75", "CHERRY_DATA_DIR": data, "PATH": "/usr/bin:/bin"})
+def send(i, method, params):
+    p.stdin.write((json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n").encode())
+    p.stdin.flush()
+    while True:
+        r = json.loads(p.stdout.readline())
+        if r.get("id") == i:
+            return r
+send(1, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "cross", "version": "1"}})
+result = send(2, "tools/call", {"name": tool, "arguments": json.loads(arguments)})["result"]
+p.stdin.close()
+p.wait(timeout=10)
+print(((result.get("structuredContent") or {}).get("error") or {}).get("code", "error") if result.get("isError") else "ok")
+PY
+}
+
+# wait_for <最长秒数> <命令…>：每 0.5 秒执行一次，成功即返回 0。
+wait_for() {
+  local limit=$(( $1 * 2 ))
+  shift
+  for _ in {1..$limit}; do "$@" && return 0; sleep 0.5; done
+  return 1
+}
+
+prepare_data() { # prepare_data <名字>：本用例的数据目录（/tmp/cherry-e2e.*/<名字>），App 的 socket 也在这里
+  DATA="$E2E_SCRATCH/$1"
+  SOCK="$DATA/control.sock"
+  mkdir -p "$DATA"
+}
+
+# ------------------------------------------------------------------------------------------------------------ XF-05
+# 设置里的开关实时管住命令行与 MCP；设置页实时显示两者的调用，包括命令行直连时的调用。
+xf05() {
+  prepare_data x5
+  ui_test XF-05 CherryUtilityUITests/CrossEntryUITests/testSettingsSwitchesGateEntriesLive
+  wait_for_app 180 || { record XF-05-实例启动 FAIL 0 "UI 用例启动的实例没有在 socket 上应答"; ui_finish XF-05 120; return; }
+  local reply
+  reply="$(mcp_call_data "$DATA" get_status '{}')"
+  if [[ "$reply" == ok ]]; then record XF-05-MCP经由App成功 PASS 0 ""; else record XF-05-MCP经由App成功 FAIL 0 "$reply"; fi
+  mcp_disabled() { [[ "$(mcp_call_data "$DATA" get_status '{}')" == automationDisabled ]]; }
+  if wait_for 60 mcp_disabled; then record XF-05-关掉MCP后被拒 PASS 0 ""; else record XF-05-关掉MCP后被拒 FAIL 0 "60 秒内没有被拒"; fi
+  check XF-05-关掉MCP时命令行照常 0 "CHERRY MX PIXIU 75" "" -- cherry_direct "$DATA" status
+  # 先取输出再匹配：脚本开了 pipefail，被拒时 cherry 以 4 退出，`cherry | grep -q` 整条管道都会算失败。
+  cli_disabled() { [[ "$(cherry_direct "$DATA" status --json 2>/dev/null)" == *'"automationDisabled"'* ]]; }
+  if wait_for 60 cli_disabled; then record XF-05-关掉命令行后经由App被拒 PASS 0 ""; else record XF-05-关掉命令行后经由App被拒 FAIL 0 "60 秒内没有被拒"; fi
+  reply="$(mcp_call_data "$DATA" get_status '{}')"
+  if [[ "$reply" == ok ]]; then record XF-05-MCP打开后恢复 PASS 0 ""; else record XF-05-MCP打开后恢复 FAIL 0 "$reply"; fi
+  # 关闭期间最后一次命令行调用走直连：设置页经共享记录与跨进程信号显示「命令行直连 · 失败」。
+  check XF-05-关掉命令行后直连也被拒 4 '"automationDisabled"' "" -- cherry_direct "$DATA" status --json --direct
+  # 等界面重新打开命令行（读共享偏好，不再发命令行调用，免得覆盖界面正在等的那条记录）。
+  cli_enabled() { [[ "$(defaults read online.odeployer.CherryUtility.simulation automation.commandLineEnabled 2>/dev/null)" == 1 ]]; }
+  if wait_for 60 cli_enabled; then record XF-05-界面重新打开命令行 PASS 0 ""; else record XF-05-界面重新打开命令行 FAIL 0 "60 秒内没有打开"; fi
+  check XF-05-命令行恢复 0 "CHERRY MX PIXIU 75" "" -- cherry_direct "$DATA" status
+  ui_finish XF-05 120
+}
+
+# ------------------------------------------------------------------------------------------------------------ XF-06
+# App 刷写固件期间，直连的 cherry 写入与读取都立即被拒；刷写结束后直连写入生效，App 主窗口随之刷新。
+xf06() {
+  prepare_data x6
+  ui_test XF-06 CherryUtilityUITests/CrossEntryUITests/testFlashBlocksADirectCommandLine
+  wait_for_app 180 || { record XF-06-实例启动 FAIL 0 "UI 用例启动的实例没有在 socket 上应答"; ui_finish XF-06 120; return; }
+  flashing() { grep -qs firmwareUpdate "$DATA"/Locks/*.lock(N); }
+  if wait_for 90 flashing; then record XF-06-锁文件出现刷写标记 PASS 0 ""; else record XF-06-锁文件出现刷写标记 FAIL 0 "90 秒内没有出现"; fi
+  check XF-06-刷写中直连写入被拒 4 '"firmwareUpdateInProgress"' "" -- cherry_direct "$DATA" set --brightness 1 --json --direct
+  check XF-06-刷写中直连读取被拒 4 '"firmwareUpdateInProgress"' "" -- cherry_direct "$DATA" status --json --direct
+  idle() { ! flashing; }
+  if wait_for 90 idle; then record XF-06-刷写结束标记清除 PASS 0 ""; else record XF-06-刷写结束标记清除 FAIL 0 "90 秒内没有清除"; fi
+  check XF-06-刷写后直连写入 0 "已更新配置 3：灯效 曲线" "" -- cherry_direct "$DATA" set -p 3 --effect 曲线 --direct
+  ui_finish XF-06 180
+}
+
+# ------------------------------------------------------------------------------------------------------------ XF-07
+# 添加到 Claude Desktop：保留其他服务与设置，写前备份。
+xf07() {
+  prepare_data x7
+  mkdir -p "$DATA/Claude"
+  print -r -- '{"globalShortcut":"Cmd+Space","mcpServers":{"files":{"command":"npx","args":["-y","server-files"]}}}' > "$DATA/Claude/claude_desktop_config.json"
+  ui_test XF-07 CherryUtilityUITests/CrossEntryUITests/testAddingToClaudeDesktop
+  ui_finish XF-07 180
+  if python3 -I -c '
+import json, os, sys
+directory = sys.argv[1]
+config = json.load(open(os.path.join(directory, "claude_desktop_config.json")))
+servers = config["mcpServers"]
+ours = servers["cherry"]
+backups = [n for n in os.listdir(directory) if n.startswith("claude_desktop_config.json.bak-")]
+ok = (config["globalShortcut"] == "Cmd+Space" and sorted(servers) == ["cherry", "files"] and ours["args"] == ["mcp"]
+      and ours["command"].endswith("/Contents/MacOS/cherry") and len(backups) == 1)
+sys.exit(0 if ok else 1)' "$DATA/Claude" 2>/dev/null; then
+    record XF-07-配置合并并备份 PASS 0 ""
+  else
+    record XF-07-配置合并并备份 FAIL 0 "$(cat "$DATA/Claude/claude_desktop_config.json" | head -c 400)"
+  fi
 }
 
 for id in ${(s:,:)only}; do

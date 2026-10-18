@@ -49,6 +49,9 @@
             <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
           </a>
         </div>
+        <!--CLI-->
+        <p class="cli"><a href="{{CLI_ZIP}}" data-download><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4"/><path d="M12 16h7"/></svg>下载命令行工具 cherry</a><span>zip · {{CLI_SIZE}} · 解压后放进 PATH 中的目录即可使用</span></p>
+        <!--/CLI-->
         <p class="meta"><span>免费</span><span>macOS {{MIN_OS}} 及以上</span><span>Apple 芯片与 Intel 通用</span><span>已通过 Apple 公证</span></p>
         <div class="shot">
           <picture><source srcset="assets/screens/overview-dark.webp" media="(prefers-color-scheme: dark)"><img class="main" src="assets/screens/overview-light.webp" width="1120" height="760" alt="CHERRY Utility 主窗口：概览页显示键盘灯光、电量、配置档和固件状态"></picture>
@@ -244,10 +247,17 @@
           <img src="assets/icon-256.png" width="84" height="84" alt="">
           <h2>下载 CHERRY Utility for Mac</h2>
           <p>版本 {{VERSION}} · macOS {{MIN_OS}} 及以上 · 通用二进制</p>
-          <a class="btn" href="{{DMG}}" data-download>
-            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>免费下载 · {{DMG_SIZE}}
-          </a>
-          <p class="small">SHA-256 <a href="{{DMG}}.sha256">校验文件</a> · <a href="appcast.xml">更新源</a></p>
+          <div class="actions">
+            <a class="btn" href="{{DMG}}" data-download>
+              <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>免费下载 · {{DMG_SIZE}}
+            </a>
+            <!--CLI-->
+            <a class="btn ghost" href="{{CLI_ZIP}}" data-download>
+              <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4"/><path d="M12 16h7"/></svg>下载命令行工具 cherry · {{CLI_SIZE}}
+            </a>
+            <!--/CLI-->
+          </div>
+          <p class="small">SHA-256 <a href="{{DMG}}.sha256">校验文件</a><!--CLI--> · <a href="{{CLI_ZIP}}.sha256">命令行校验文件</a><!--/CLI--> · <a href="appcast.xml">更新源</a></p>
         </div>
       </div>
     </section>
@@ -258,6 +268,9 @@
       <p>CHERRY Utility for Mac 是独立开发的非官方工具，与 CHERRY 无关联。CHERRY 及相关产品名称是其各自所有者的商标。</p>
       <div class="links">
         <a href="{{DMG}}">下载</a>
+        <!--CLI-->
+        <a href="{{CLI_ZIP}}">命令行工具</a>
+        <!--/CLI-->
         <a href="#changelog">更新日志</a>
         <a href="releases/latest.json">版本信息</a>
         <a href="appcast.xml">更新源</a>

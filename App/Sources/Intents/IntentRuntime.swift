@@ -1,6 +1,7 @@
 import AppIntents
 import CherryCore
 import CherryFeatures
+import CherryPresentation
 import Foundation
 
 // 意图（快捷指令、Spotlight）在 App 进程内执行：经组合根注册的 `KeyboardAutomation` 访问键盘，

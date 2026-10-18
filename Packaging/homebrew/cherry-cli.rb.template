@@ -1,0 +1,24 @@
+# homebrew-cask 的 cherry-cli：只装独立命令行 cherry（来自签名并公证的 cherry-<版本>.zip），不依赖 App。
+# Scripts/release.sh 把 {{VERSION}}、{{SHA256}} 换成版本号和 zip 的 SHA-256，渲染到 .release/<版本>-<build>/cherry-cli.rb；
+# 以 # 开头的顶格行（即本说明）不会进入渲染结果。livecheck 读官网 releases/latest.json 的 cli 段
+# （Website/build.py 取带命令行 zip 的最新版本），某个版本没附 zip 时不会误报更新。
+cask "cherry-cli" do
+  version "{{VERSION}}"
+  sha256 "{{SHA256}}"
+
+  url "https://odeployer.online/cherry-utility/downloads/cherry-#{version}.zip"
+  name "CHERRY Utility CLI"
+  desc "Command-line tool for configuring CHERRY keyboards"
+  homepage "https://odeployer.online/cherry-utility/"
+
+  livecheck do
+    url "https://odeployer.online/cherry-utility/releases/latest.json"
+    strategy :json do |json|
+      json.dig("cli", "version")
+    end
+  end
+
+  depends_on macos: :sequoia
+
+  binary "cherry"
+end

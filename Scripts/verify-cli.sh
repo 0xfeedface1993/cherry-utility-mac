@@ -2,7 +2,7 @@
 # `cherry` 命令行与 `cherry mcp` 的模拟端到端检查。每个套件以模拟键盘在后台启动自己的 App 实例（不显示主窗口），
 # 用包内的 cherry 经 /tmp 下的 socket 调用它；不碰真键盘、正式 App 的 socket，也不让 App 访问 ~/Downloads。
 #
-#   Scripts/verify-cli.sh [--run-dir <目录>] [--suites core,presets,concurrency,watch,lifecycle,scenarios,mcp,cross] [<CherryUtility.app>]
+#   Scripts/verify-cli.sh [--run-dir <目录>] [--suites core,presets,concurrency,watch,lifecycle,scenarios,mcp,cross,direct] [<CherryUtility.app>]
 #
 # 默认 App 为 ~/Library/Developer/Xcode/DerivedData/CherryUtility-automation 的 Debug 构建（先用 xcodebuild 构建）。
 # 结果写入 <运行目录>/results.tsv（套件、ID、PASS/FAIL/KNOWN、耗时、说明），命令与输出写入 transcript.txt，
@@ -12,7 +12,7 @@ set -uo pipefail
 repo="${0:A:h:h}"
 source "$repo/Scripts/e2e-lib.sh"
 
-run_dir="" suites="core,presets,concurrency,watch,lifecycle,scenarios,mcp,cross"
+run_dir="" suites="core,presets,concurrency,watch,lifecycle,scenarios,mcp,cross,direct"
 while (( $# )); do
   case "$1" in
     --run-dir) run_dir="$2"; shift 2 ;;
@@ -21,7 +21,7 @@ while (( $# )); do
   esac
 done
 app="${1:-$HOME/Library/Developer/Xcode/DerivedData/CherryUtility-automation/Build/Products/Debug/CherryUtility.app}"
-[[ "$suites" == all ]] && suites="core,presets,concurrency,watch,lifecycle,scenarios,mcp,cross"
+[[ "$suites" == all ]] && suites="core,presets,concurrency,watch,lifecycle,scenarios,mcp,cross,direct"
 run_dir="${run_dir:-$repo/build/cli-e2e/$(date +%Y%m%d-%H%M%S)}"
 e2e_init "$run_dir" "$app"
 trap e2e_cleanup EXIT
@@ -594,6 +594,115 @@ sys.exit(0 if ok else 1)' "$dir/watch.ndjson" "$final" 2>/dev/null; then
     record XF-01-MCP写入恰好两个watch事件 FAIL 0 "$(wc -l < "$dir/watch.ndjson") 行；$(tr '\n' ' ' < "$dir/mcp.out")"
   fi
   quit_sim x
+}
+
+# ----------------------------------------------------------------------------------------------------------- direct
+# CL-40 起：cherry 与 App 各自独立又共用状态。数据目录在 /tmp/cherry-* 下，App 与 cherry 都带 CHERRY_SIMULATION 和
+# CHERRY_DATA_DIR：App 在 <数据目录>/control.sock 上监听；没有 App 应答时 cherry 直连同一个（共享状态文件的）模拟键盘。
+suite_direct() {
+  E2E_SUITE=direct
+  local data="$E2E_SCRATCH/direct" dir="$E2E_SCRATCH/direct-out"
+  mkdir -p "$data/Presets" "$dir"
+  d() { cherry_direct "$data" "$@"; }
+  seed_preset_file() { print -r -- "$2" > "$data/Presets/$1"; }
+  seed_preset_file A1.cherryprofile "$(preset_json A1A1A1A1-0000-4000-8000-0000000000D1 直连预设 2026-01-01T00:00:00Z 482 12 3 1 FF7200 false 300 30)"
+
+  check CL-40-没有App时doctor报直连 0 "直接连接键盘" "" -- d doctor
+  check CL-40-直连读状态 0 "CHERRY MX PIXIU 75" "" -- d status
+  check CL-40-直连写入 0 "已更新配置 3：灯效 呼吸，亮度 低" "" -- d set -p 3 --effect 呼吸 --brightness 1
+  check CL-40-直连切换配置档 0 "已切换到配置 1" "" -- d profile 1
+  check CL-40-直连载入预设 0 "已把预设「直连预设」载入配置 2" "" -- d preset apply 直连预设 -p 2
+  check CL-40-直连读回 0 "" "" -- d status --json
+  json_expect CL-40-直连写入都生效 'd["status"]["activeProfile"]==1 and (lambda p: p[3]["effect"]=="呼吸" and p[3]["brightness"]==1 and p[2]["effect"]=="曲线")({x["profile"]: x for x in d["status"]["profiles"]})'
+  check CL-40-version标明直连 0 "直接连接键盘" "" -- d version
+  check CL-40-via-app在模拟时拒绝 1 "" "模拟模式下不启动" -- d status --via-app
+  check CL-40-no-launch不直连 3 "" "没有运行" -- d status --no-launch
+
+  # CL-41：6 个直连进程并发写配置 3 的不同字段，跨进程锁让它们依次执行，全部生效。
+  local -a writers commands=("--effect 光谱" "--brightness 2" "--speed 4" "--color #3153FF" "--sleep 120" "--deep-sleep 45")
+  local i=0
+  for command in "${commands[@]}"; do
+    i=$((i + 1))
+    ( d set -p 3 ${=command} > "$dir/w$i.out" 2> "$dir/w$i.err"; print $? > "$dir/w$i.code" ) &
+    writers+=($!)
+  done
+  wait "${writers[@]}"
+  local bad=""
+  for i in {1..6}; do [[ "$(<"$dir/w$i.code")" == 0 ]] || bad+=" $i:$(<"$dir/w$i.err")"; done
+  if [[ -z "$bad" ]]; then record CL-41-并发直连写入都成功 PASS 0 ""; else record CL-41-并发直连写入都成功 FAIL 0 "$bad"; fi
+  check CL-41-并发直连读回 0 "" "" -- d status --json
+  json_expect CL-41-每个字段都写入 '(lambda p: p["effect"]=="光谱" and p["brightness"]==2 and p["speed"]==4 and p["color"]=="#3153FF" and p["sleepSeconds"]==120 and p["deepSleepMinutes"]==45)({x["profile"]: x for x in d["status"]["profiles"]}[3])'
+
+  # CL-42：直连的 watch 先开着，再启动 App：经由 App 的写入发出跨进程信号，直连的 watch 重读后收到。
+  # exec 让 $! 就是 cherry 进程本身，kill / wait 直接作用于它。
+  ( exec env -u CHERRY_CONTROL_SOCKET CHERRY_SIMULATION=pixiu75 CHERRY_DATA_DIR="$data" "$E2E_CLI" watch --direct --json \
+      > "$dir/watch.ndjson" 2> "$dir/watch.err" ) &
+  local watcher=$!
+  for _ in {1..50}; do grep -q "开始监听" "$dir/watch.err" 2>/dev/null && break; sleep 0.1; done
+  launch_sim_data dapp pixiu75 "$data" || return
+  check CL-43-App启动后经由App 0 "经由 CHERRY Utility" "" -- d doctor
+  check CL-43-App读到直连写入的值 0 "" "" -- d status --json
+  json_expect CL-43-与直连写入一致 'd["status"]["activeProfile"]==1 and {x["profile"]: x for x in d["status"]["profiles"]}[3]["effect"]=="光谱"'
+  check CL-42-经由App写入 0 "已更新配置 2：亮度 中" "" -- d set -p 2 --brightness 2
+  for _ in {1..50}; do grep -q '"profile":2' "$dir/watch.ndjson" 2>/dev/null && break; sleep 0.1; done
+  if python3 -I -c '
+import json, sys
+events = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+ok = any({p["profile"]: p for p in e["profiles"]}[2]["brightness"] == 2 for e in events if "profiles" in e)
+sys.exit(0 if ok else 1)' "$dir/watch.ndjson" 2>/dev/null; then
+    record CL-42-直连watch收到App写入 PASS 0 ""
+  else
+    record CL-42-直连watch收到App写入 FAIL 0 "$(head -c 300 "$dir/watch.ndjson")"
+  fi
+  kill $watcher 2>/dev/null; wait $watcher 2>/dev/null
+
+  # CL-44：共用的开关。App 运行中用 defaults 关掉命令行，经由 App 与直连都拒绝；打开后恢复。
+  defaults write online.odeployer.CherryUtility.simulation automation.commandLineEnabled -bool false
+  check CL-44-关掉后经由App拒绝 4 '"automationDisabled"' "" -- d status --json
+  check CL-44-关掉后直连也拒绝 4 '"automationDisabled"' "" -- d status --json --direct
+  defaults write online.odeployer.CherryUtility.simulation automation.commandLineEnabled -bool true
+  check CL-44-打开后恢复 0 "CHERRY MX PIXIU 75" "" -- d status
+
+  # CL-45：调用记录共用，标明经由 App 还是直连。
+  if python3 -I -c '
+import json, sys
+a = json.load(open(sys.argv[1]))["commandLine"]
+sys.exit(0 if a["count"] >= 15 and a["lastCall"]["route"] == "viaApp" else 1)' "$data/automation-activity.json" 2>/dev/null; then
+    record CL-45-调用记录共用 PASS 0 ""
+  else
+    record CL-45-调用记录共用 FAIL 0 "$(head -c 300 "$data/automation-activity.json")"
+  fi
+
+  # MC-20：同一个 cherry mcp 进程：App 在时经由 App，App 退出后直连，全程不重启。
+  mkfifo "$dir/mcp.in"
+  ( exec env -u CHERRY_CONTROL_SOCKET CHERRY_SIMULATION=pixiu75 CHERRY_DATA_DIR="$data" "$E2E_CLI" mcp < "$dir/mcp.in" > "$dir/mcp.out" 2> "$dir/mcp.err" ) &
+  local server=$! feed
+  exec {feed}> "$dir/mcp.in"
+  mcp_status() { # mcp_status <id>：get_status，打印活动记录里 MCP 最近一次调用的路线
+    print -u $feed -r -- '{"jsonrpc":"2.0","id":'$1',"method":"tools/call","params":{"name":"get_status","arguments":{}}}'
+    for _ in {1..300}; do grep -q "\"id\":$1[,}]" "$dir/mcp.out" && break; sleep 0.1; done
+    python3 -I -c '
+import json, sys
+reply = next(json.loads(l) for l in open(sys.argv[1]) if json.loads(l).get("id") == int(sys.argv[2]))
+route = json.load(open(sys.argv[3]))["mcp"]["lastCall"]["route"]
+print(("error" if (reply.get("result") or {}).get("isError") else "ok") + " " + route)' "$dir/mcp.out" "$1" "$data/automation-activity.json" 2>/dev/null
+  }
+  print -u $feed -r -- '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"direct","version":"1"}}}'
+  print -u $feed -r -- '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  local reply
+  reply="$(mcp_status 2)"
+  if [[ "$reply" == "ok viaApp" ]]; then record MC-20-App在时经由App PASS 0 ""; else record MC-20-App在时经由App FAIL 0 "$reply"; fi
+  quit_sim dapp
+  reply="$(mcp_status 3)"
+  if [[ "$reply" == "ok direct" ]]; then record MC-20-App退出后直连 PASS 0 ""; else record MC-20-App退出后直连 FAIL 0 "$reply"; fi
+  exec {feed}>&-
+  wait $server; local code=$?
+  if [[ $code == 0 && ! -s "$dir/mcp.err" ]]; then record MC-20-关闭输入后退出 PASS 0 ""; else record MC-20-关闭输入后退出 FAIL 0 "退出码 $code：$(<"$dir/mcp.err")"; fi
+
+  # CL-46：App 退出后，命令行回到直连，状态仍是同一份。
+  check CL-46-App退出后回到直连 0 "直接连接键盘" "" -- d doctor
+  check CL-46-直连读到App写入的值 0 "" "" -- d status --json
+  json_expect CL-46-与经由App写入一致 '{x["profile"]: x for x in d["status"]["profiles"]}[2]["brightness"]==2'
 }
 
 for suite in ${(s:,:)suites}; do

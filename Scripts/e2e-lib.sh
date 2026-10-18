@@ -49,7 +49,20 @@ e2e_is_simulated() {
   ! kill -0 "$pid" 2>/dev/null
 }
 
-# 每秒检查：所有 CherryUtility 进程都必须带 CHERRY_SIMULATION=；默认 socket 不能出现。
+# cherry 进程：带 CHERRY_SIMULATION=（直连的也是模拟键盘），或者带 /tmp/cherry-* 下的 CHERRY_CONTROL_SOCKET（指定了 socket
+# 就绝不直连）。两样都没有的 cherry 可能直连真键盘。重读规则同上。
+e2e_cherry_is_safe() {
+  local pid="$1" line
+  for _ in 1 2 3; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    line="$(ps -wwE -p "$pid" -o command= 2>/dev/null)"
+    [[ "$line" == *CHERRY_SIMULATION=* || "$line" == *CHERRY_CONTROL_SOCKET=/tmp/cherry-* || "$line" == *CHERRY_CONTROL_SOCKET=/private/tmp/cherry-* ]] && return 0
+    sleep 0.2
+  done
+  ! kill -0 "$pid" 2>/dev/null
+}
+
+# 每秒检查：所有 CherryUtility 进程都必须带 CHERRY_SIMULATION=；cherry 进程见上；默认 socket 不能出现。
 e2e_watchdog_start() {
   local log="$E2E_RUN/watchdog.log" abort="$E2E_RUN/ABORT"
   (
@@ -58,6 +71,12 @@ e2e_watchdog_start() {
         e2e_is_simulated "$pid" && continue
         kill -9 "$pid" 2>/dev/null
         print "$(date +%T) 非模拟模式的 CherryUtility（pid $pid），已结束" >> "$log"
+        touch "$abort"
+      done
+      for pid in $(pgrep -x cherry); do
+        e2e_cherry_is_safe "$pid" && continue
+        kill -9 "$pid" 2>/dev/null
+        print "$(date +%T) 可能直连真键盘的 cherry（pid $pid），已结束" >> "$log"
         touch "$abort"
       done
       if [[ -e "$E2E_DEFAULT_SOCKET" ]]; then
@@ -148,6 +167,43 @@ watch_bg() {
   shift 3
   ( cherry_safe_check "$socket" || exit 70; CHERRY_CONTROL_SOCKET="$socket" exec "$E2E_CLI" watch "$@" > "$out" 2> "$err" ) &
   WATCHER=$!
+}
+
+# cherry_direct <数据目录> <参数…>：不指定 socket，带模拟键盘与 /tmp/cherry-* 下的数据目录运行 cherry。
+# 数据目录里有模拟 App 应答时经由它，否则直连同一个（共享状态文件的）模拟键盘。
+cherry_direct() {
+  local data="$1"
+  shift
+  case "$data" in
+    /tmp/cherry-*|/private/tmp/cherry-*) ;;
+    *) print -u2 "cherry_direct：拒绝数据目录 $data"; return 70 ;;
+  esac
+  env -u CHERRY_CONTROL_SOCKET CHERRY_SIMULATION="${E2E_DIRECT_SCENARIO:-pixiu75}" CHERRY_DATA_DIR="$data" "$E2E_CLI" "$@"
+}
+
+# launch_sim_data <名字> <场景> <数据目录> [附加 --env 变量…]：以数据目录启动模拟实例，App 在 <数据目录>/control.sock 上监听，
+# 模拟键盘的配置存在 <数据目录>/simulated-keyboard.bin，与 cherry_direct 共用。
+launch_sim_data() {
+  local name="$1" scenario="$2" data="$3"
+  shift 3
+  local socket="$data/control.sock" before after pid answered=""
+  local -a extra
+  for variable in "$@"; do extra+=(--env "$variable"); done
+  before=" $(pgrep -x CherryUtility | tr '\n' ' ') "
+  mkdir -p "$data"
+  open -n -g -j --env CHERRY_SIMULATION="$scenario" --env CHERRY_DATA_DIR="$data" "${extra[@]}" "$E2E_APP" --args --background
+  for _ in {1..150}; do
+    for pid in $(pgrep -x CherryUtility); do
+      [[ "$before" == *" $pid "* ]] || after="$pid"
+    done
+    if [[ -n "$after" && -S "$socket" ]] && CHERRY_CONTROL_SOCKET="$socket" "$E2E_CLI" version > /dev/null 2>&1; then
+      answered=1
+      break
+    fi
+    sleep 0.1
+  done
+  [[ -n "$answered" ]] || { print -u2 "模拟实例 $name（$scenario，数据目录 $data）15 秒内没有在 socket 上应答"; return 1; }
+  E2E_PIDS[$name]="$after"
 }
 
 cherry_safe_check() {

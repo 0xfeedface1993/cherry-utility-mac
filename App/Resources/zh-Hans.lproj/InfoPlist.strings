@@ -1,0 +1,6 @@
+/* Finder、Spotlight、程序坞和快捷指令动作库里的 App 名称。包的文件名仍是 CherryUtility.app（cherry 命令行、cask 和 Sparkle 都按它查找），
+   Info.plist 里未本地化的 CFBundleDisplayName 要与它一致，系统才会用这里的名称。 */
+"CFBundleDisplayName" = "CHERRY Utility";
+
+/* App 在前台时屏幕顶部菜单栏里的 App 菜单名，以及「关于」「隐藏」「退出」等菜单项。 */
+"CFBundleName" = "CHERRY Utility";

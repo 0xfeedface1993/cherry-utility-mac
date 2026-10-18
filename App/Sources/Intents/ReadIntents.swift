@@ -1,6 +1,7 @@
 import AppIntents
 import CherryCore
 import CherryFeatures
+import CherryPresentation
 import Foundation
 
 struct GetKeyboardStatusIntent: AppIntent {

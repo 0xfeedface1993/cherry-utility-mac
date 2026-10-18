@@ -1,6 +1,6 @@
 import XCTest
 
-/// UI-01…UI-05：启动、导航、空设备 / 未适配型号、窗口与菜单栏的生命周期。
+/// UI-01…UI-06：启动、导航、空设备 / 未适配型号、窗口与菜单栏的生命周期、App 菜单的名称。
 @MainActor
 final class LaunchAndNavigationUITests: CherryUITestCase {
     /// UI-01 启动后侧栏顶部的设备卡片显示模拟键盘并自动选中，默认显示概览，窗口标题为当前分区。
@@ -60,5 +60,26 @@ final class LaunchAndNavigationUITests: CherryUITestCase {
         element("menubar.openMain").click()
         XCTAssertTrue(window.waitForExistence(timeout: 5), "面板应能重新打开主窗口")
         wait(for: "info.model")
+    }
+
+    /// UI-06 屏幕顶部菜单栏的 App 菜单与「关于」「退出」菜单项用本地化名称「CHERRY Utility」
+    /// （zh-Hans.lproj/InfoPlist.strings 的 CFBundleName；包的文件名和可执行文件名仍是 CherryUtility）。
+    func testAppMenuUsesTheLocalizedName() {
+        launch()
+        wait(for: "info.model")
+        let appMenu = app.menuBars.menuBarItems["CHERRY Utility"]
+        XCTAssertTrue(appMenu.waitForExistence(timeout: 5),
+                      "App 菜单应为「CHERRY Utility」，实际 \(app.menuBars.menuBarItems.allElementsBoundByIndex.map(\.title))")
+        appMenu.click()
+        // 只看 App 菜单自己的项：苹果菜单的「最近使用的项目」里是系统记下的条目，可能还是旧构建的文件名。
+        let items = appMenu.menuItems
+        let named = items.matching(NSPredicate(format: "title CONTAINS %@", "CHERRY Utility"))
+        XCTAssertTrue(named.matching(NSPredicate(format: "title BEGINSWITH %@", "关于")).firstMatch.waitForExistence(timeout: 5),
+                      "没有「关于 CHERRY Utility」")
+        XCTAssertTrue(named.matching(NSPredicate(format: "title BEGINSWITH %@", "退出")).firstMatch.exists, "没有「退出 CHERRY Utility」")
+        let fileNamed = items.matching(NSPredicate(format: "title CONTAINS %@", "CherryUtility"))
+        XCTAssertFalse(fileNamed.firstMatch.exists,
+                       "菜单项里不应出现文件名 CherryUtility：\(fileNamed.allElementsBoundByIndex.map(\.title))")
+        app.typeKey(.escape, modifierFlags: [])
     }
 }

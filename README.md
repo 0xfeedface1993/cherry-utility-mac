@@ -41,9 +41,10 @@
 
 ## 发布
 
-- `Scripts/release.sh <版本> <build> [--note …]`：Release 归档（universal、Hardened Runtime、Developer ID）→ 重签 Sparkle 内嵌组件 → DMG（卷图标、背景图与图标布局）→ 公证并 staple → Sparkle 签名 → 写入 `Website/releases.json`。凭据从仓库外的 `~/Documents/开发密钥/CherryUtility-release.env` 读取；缺凭据时直接失败。`--skip-notarize` 只试跑，不写 releases.json；`--resume` 沿用中断那次的 DMG，从公证继续（已附票据或已有同一 DMG 的通过记录时不再上传）；`CHERRY_DERIVED_DATA=.release/<上次>/DerivedData` 复用构建缓存，省去约 10 分钟的 universal 全量编译。build 号必须递增。
+- `Scripts/release.sh <版本> <build> [--note …]`：Release 归档（universal、Hardened Runtime、Developer ID）→ 重签 Sparkle 内嵌组件 → DMG（卷图标、背景图与图标布局）→ 公证并 staple → Sparkle 签名 → 写入 `Website/releases.json`。另外打独立命令行的 `cherry-<版本>.zip`（单独公证），并按 `Packaging/homebrew/` 的模板渲染 `cherry-utility.rb`、`cherry-cli.rb` 两个 cask。凭据从仓库外的 `~/Documents/开发密钥/CherryUtility-release.env` 读取；缺凭据时直接失败。`--skip-notarize` 只试跑，不写 releases.json；`--resume` 沿用中断那次的 DMG，从公证继续（已附票据或已有同一 DMG 的通过记录时不再上传）；`CHERRY_DERIVED_DATA=.release/<上次>/DerivedData` 复用构建缓存，省去约 10 分钟的 universal 全量编译。build 号必须递增。
 - `Scripts/deploy-website.sh --artifacts .release/<版本>-<build>`：由 `Website/releases.json` 生成官网、`appcast.xml`、`releases/latest.json`，复制到 `~/Library/Application Support/CherryUtility-Website/releases/<id>` 后原子切换 `current`；`Scripts/rollback-website.sh` 交换 `current`/`previous`。只有已公证且有 Sparkle 签名的版本才会出现在下载按钮和 appcast 中。
 - `Scripts/verify-update.sh <旧版.dmg> <新版.dmg>`：Sparkle 端到端检查，不启动 App。把旧版 App 复制到 `.release/update-check/<时间>/`，用 `Website/build.py` 生成只含新版的本地 appcast，再由 Sparkle 自带的 `sparkle-cli` 完成检查、下载、EdDSA 校验与安装，最后核对版本、签名和 Team。新版可以是 `--skip-notarize` 的试跑产物。`--public <旧版.dmg>` 只读询问公开 appcast。Sparkle 写入 `online.odeployer.CherryUtility` 偏好域的 `SU*` 键和缓存，脚本结束时会还原。
+- `Scripts/verify-cask.sh <dmg> <zip>`：校验两个 cask 与产物（通用二进制、签名、`brew style` / `brew audit` / `brew fetch`、公证与 Gatekeeper），不安装任何东西；未公证的试跑产物记为「待发布」。
 - 公网路由：Cloudflare → 远端 FRPS → 本机 frpc 代理 `cherry-utility-website`（`locations = ["/cherry-utility"]`）→ Caddy `127.0.0.1:7904`（`Website/deploy/Caddyfile.template`，由 Homebrew Caddyfile import）。
 - `Scripts/make-dmg.sh <App> <输出.dmg>`：`release.sh` 用它制作 DMG，也可以单独试做。卷图标、窗口布局和背景图都由 dmgbuild 写入，不打开 Finder，也不需要「自动化」权限。dmgbuild 首次运行时从 PyPI 装进 `.release/tools/dmgbuild-venv`，版本已固定。窗口 660×400 pt，App 图标放在 (165, 200)，「应用程序」放在 (495, 200)，与背景图的箭头对齐。背景图 `Design/icons/DMGBackground{,@2x}.png` 由 `DMGBackground.svg` 生成：改完 SVG 后运行 `swift Scripts/render-dmg-background.swift`。
 - 设计：Figma 文件 <https://www.figma.com/design/EeQJbjGZbmwHuosIsrUDQo>；`Design/mockups/build.py` 生成高保真稿，`Design/icons/*.svg` 是图标源文件。官网截图来自真实视图：`CHERRY_RENDER_DIR=<目录> swift test --filter ScreenRender`（在 `Packages/CherryKit` 下运行）。
@@ -181,7 +182,7 @@ App/                  组合根：创建适配器交给 CoreServices，通过 wi
 
 ## 自动化（快捷指令 / Spotlight / 命令行 / MCP）
 
-动作在 App 进程内执行，与菜单栏、主窗口共用同一个设备通道和写入队列；写入后菜单栏和主窗口会立即刷新。不选「键盘」时使用唯一连接的键盘，不选「配置档」时修改当前配置档。
+快捷指令与 Spotlight 的动作在 App 进程内执行，与菜单栏、主窗口共用同一个设备通道和写入队列，写入后菜单栏和主窗口立即刷新。命令行 `cherry` 与 MCP 服务可以单独安装：CHERRY Utility 在运行时经由它执行，没在运行时直接连接键盘。两边通过设备锁和跨进程通知协调，共用预设、开关和调用记录。不选「键盘」时使用唯一连接的键盘，不选「配置档」时修改当前配置档。
 
 | 动作 | 说明 |
 |---|---|
@@ -195,16 +196,30 @@ App/                  组合根：创建适配器交给 CoreServices，通过 wi
 | 设置休眠时间 | 休眠 0 或 30–300 秒，深度休眠 0 或 15–300 分钟（0 为不休眠） |
 | 载入灯光预设 | 与菜单栏的「载入预设」相同；来自其他型号的预设会被拒绝 |
 
+- 在快捷指令里：新建快捷指令后，动作在编辑器右侧的「App › CHERRY Utility」里，用中文搜索「键盘」「配置档」「灯效」也能找到。它们不会出现在「所有快捷指令」或快捷指令中心。Spotlight 里可以直接输入「切换配置档」等短语运行。
+- 每个动作默认「运行时显示」：执行后弹出结果面板，关掉面板之前快捷指令不会继续。把几个动作串成一条快捷指令时，点开动作的选项，把「运行时显示」关掉。
+- 只有装在「应用程序」文件夹里的 App 才会出现在快捷指令的动作库里。从 Xcode 运行的构建（在 `~/Library/Developer/Xcode/DerivedData` 下）虽然已被系统登记，编辑器也会略过它。
 - 需要已授予「输入监控」权限（与菜单栏相同）。
 - 系统为执行动作启动 App 时，可能会弹出主窗口。建议打开「设置 › 通用 › 登录时打开」，并关闭「启动时显示主窗口」。
 - Siri AI 目前不能调用第三方的设备控制动作；AI 客户端可以用下面的 MCP 服务。调研结论与各阶段的实现见 [Docs/自动化接入方案.md](Docs/自动化接入方案.md)。
 
+### 设置 › 自动化
+
+- 「允许命令行控制」「允许 MCP 控制」两个开关，默认都开。关掉后对应入口的调用都会被拒绝，经由 App 和直连都一样。
+- 显示两个入口最近一次调用（经由 App 还是命令行直连、成败、累计次数），以及 App 的控制 socket 状态。
+- 「安装到 /usr/local/bin…」：把 App 自带的 cherry 链接进 PATH，目录不可写时会弹出系统管理员授权。已有独立安装的 cherry（例如 Homebrew）时不覆盖。
+- 「添加到 Claude Desktop」：写入前备份配置，保留其他 MCP 服务。Claude Code 用「复制注册命令」，其他 MCP 客户端用「复制 JSON 配置」。
+
 ### 命令行 `cherry`
 
-App 包内附带命令行工具 `Contents/MacOS/cherry`。它经本机 socket（`~/Library/Application Support/CherryUtility/control.sock`，只允许本用户连接）调用运行中的 App，与菜单栏、快捷指令共用同一个设备通道和写入队列。App 没运行时会在后台启动它，不显示主窗口。不提供固件操作。
+可以单独安装，不需要先装 App：
+
+- Homebrew：`brew install --cask cherry-cli`（只装命令行）和 `brew install --cask cherry-utility`（只装 App），两个 cask 相互独立。这两个 cask 进入 homebrew-cask 之前还不能使用。
+- 官网下载 `cherry-<版本>.zip` 和 `.sha256`，先 `shasum -a 256 -c cherry-<版本>.zip.sha256`，再 `ditto -x -k cherry-<版本>.zip ~/.local/bin`（这个目录要在 PATH 里）。zip 里的 cherry 经过 Developer ID 签名和 Apple 公证。
+- 已经装了 App：在「设置 › 自动化」里安装，或者手动链接 App 自带的那一个（Finder 里显示为「CHERRY Utility」，包的文件名是 `CherryUtility.app`）：
 
 ```bash
-ln -s "/Applications/CHERRY Utility.app/Contents/MacOS/cherry" ~/.local/bin/cherry
+ln -s /Applications/CherryUtility.app/Contents/MacOS/cherry ~/.local/bin/cherry
 ```
 
 ```text
@@ -214,32 +229,40 @@ cherry set --effect 呼吸 --brightness 高
 cherry set --profile 3 --color '#FF7200' --sleep 0
 cherry preset apply 办公
 cherry keyboards | effects | presets | battery | watch | version
+cherry doctor                        # 会经由 App 还是直连、输入监控、位置与版本
 ```
 
+- **路线**：
+  - CHERRY Utility 在运行时，命令经由它执行（socket：`~/Library/Application Support/CherryUtility/control.sock`，只允许本用户连接）。
+  - 没在运行时，cherry 直接连接键盘，不启动 App。
+  - `--via-app` 先在后台启动 App 再经由它；`--no-launch` 只经由运行中的 App，它不在就报错；`--direct` 强制直连。
+- **直连时的输入监控**：要在「系统设置 › 隐私与安全性 › 输入监控」里允许运行 cherry 的终端（MCP 则是 Claude 等客户端）。cherry 检测到没有权限时会说明。
+- **共用的状态**：两边轮流使用同一把键盘（设备锁），命令行直连写入后 App 的菜单栏和主窗口会刷新。App 刷写固件期间，直连的 cherry 会立即收到「正在升级固件」。
 - 加 `--json` 输出 JSON，失败时也在标准输出给出 `{"error":{"code","message"}}`；`-k <ID>` 指定键盘，ID 由 `cherry keyboards` 列出。
-- 退出码：0 成功，2 用法错误，3 无法连接 App，4 键盘或参数被拒绝。
-- 端到端检查（都只用模拟键盘，socket 放在 /tmp 下的独立目录，不碰正式 App；运行时有看门狗，发现非模拟模式的实例或默认 socket 就中止）：
-  - `Scripts/verify-cli.sh --suites all`：以模拟模式在后台启动 Debug 构建，按套件检查命令行（各型号场景、预设、并发、`watch`、socket 生命周期）和经 stdio 的 `cherry mcp`（`Scripts/verify-mcp.py`）。
-  - `Scripts/verify-cross.sh`：驱动 `CrossEntryUITests` 与 `IntentFeedUITests`，核对菜单栏、快捷指令意图、命令行和 MCP 共用一个写入队列和变更流。
-  - `Scripts/verify-intents-metadata.py <App>`：核对构建产物里的 App Intents 元数据（动作、实体、枚举、App Shortcuts 短语）。
+- 退出码：0 成功，2 用法错误，3 无法连接 App（只在指定 socket、`--no-launch` 或 `--via-app` 时出现），4 键盘或参数被拒绝，1 其它。
+- 端到端检查（都只用模拟键盘，socket 和数据目录都在 /tmp 下，不碰正式 App；看门狗发现非模拟模式的 App、可能直连真键盘的 cherry 或默认 socket 时立即中止）：
+  - `Scripts/verify-cli.sh --suites all`：以模拟模式在后台启动 Debug 构建，按套件检查命令行（各型号场景、预设、并发、`watch`、socket 生命周期、直连与共享状态）和经 stdio 的 `cherry mcp`（`Scripts/verify-mcp.py`）。
+  - `Scripts/verify-cross.sh`：驱动 `CrossEntryUITests` 与 `IntentFeedUITests`，核对菜单栏、设置、快捷指令意图、命令行和 MCP 共用写入队列、变更流、开关和调用记录。
+  - `Scripts/verify-intents-metadata.py <App>`：核对构建产物里的 App Intents 元数据（动作、实体、枚举、App Shortcuts 短语），以及 Finder / Spotlight / 快捷指令用的显示名「CHERRY Utility」。
+  - `Scripts/verify-cask.sh <dmg> <zip>`：渲染两个 cask，在临时 tap 里跑 `brew style` / `brew audit`，并核对二进制与签名。
 
 ### MCP（Claude Code / Claude Desktop）
 
-`cherry mcp` 是一个 stdio MCP 服务（服务名 `cherry-utility`），让 Claude Code、Claude Desktop 等 AI 客户端读取和设置键盘。每次工具调用都像命令行一样交给运行中的 App 执行；App 没运行时在后台启动它。不提供固件操作。
+`cherry mcp` 是一个 stdio MCP 服务（服务名 `cherry-utility`），让 Claude Code、Claude Desktop 等 AI 客户端读取和设置键盘。每次工具调用都按命令行的规则选路：CHERRY Utility 在运行时经由它，否则直连键盘。App 中途启动或退出也不需要重启 MCP。不提供固件操作。
 
-注册到 Claude Code（对所有项目可用）：
+注册到 Claude Code（对所有项目可用；路径换成你的 cherry，例如 Homebrew 装的 `/opt/homebrew/bin/cherry`）：
 
 ```bash
-claude mcp add --scope user cherry -- "/Applications/CHERRY Utility.app/Contents/MacOS/cherry" mcp
+claude mcp add --scope user cherry -- /Applications/CherryUtility.app/Contents/MacOS/cherry mcp
 ```
 
-注册到 Claude Desktop：在 `~/Library/Application Support/Claude/claude_desktop_config.json` 的 `mcpServers` 里加入下面一项，然后重启 Claude Desktop。
+注册到 Claude Desktop：用「设置 › 自动化 › 添加到 Claude Desktop」；或者在 `~/Library/Application Support/Claude/claude_desktop_config.json` 的 `mcpServers` 里加入下面一项，然后重启 Claude Desktop。
 
 ```json
 {
   "mcpServers": {
     "cherry": {
-      "command": "/Applications/CHERRY Utility.app/Contents/MacOS/cherry",
+      "command": "/Applications/CherryUtility.app/Contents/MacOS/cherry",
       "args": ["mcp"]
     }
   }

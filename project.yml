@@ -38,6 +38,9 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     # Only the app declares App Intents; skipping the extractor elsewhere avoids its "Metadata extraction skipped" warning.
     LM_SKIP_METADATA_EXTRACTION: "YES"
+    # App 与 cherry 共用版本号：独立安装的 cherry 从自身内嵌的 Info.plist 报告版本。release.sh 在命令行上覆盖它们。
+    MARKETING_VERSION: "1.1.0"
+    CURRENT_PROJECT_VERSION: "3"
 targets:
   CherryUtility:
     type: application
@@ -53,6 +56,8 @@ targets:
         product: CherryCore
       - package: CherryKit
         product: CherryAdapters
+      - package: CherryKit
+        product: CherryPresentation
       - package: CherryKit
         product: CherryFeatures
       - package: CherryKit
@@ -73,7 +78,10 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: CHERRY Utility
+        # Finder、Spotlight、程序坞和快捷指令显示的「CHERRY Utility」来自 App/Resources/zh-Hans.lproj/InfoPlist.strings。
+        # 这里的值必须与包的文件名（CherryUtility.app）一致：不一致时系统当作用户改过名，只显示文件名。
+        CFBundleDisplayName: $(PRODUCT_NAME)
+        LSHasLocalizedDisplayName: true
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.utilities
@@ -94,6 +102,9 @@ targets:
         SUPublicEDKey: $(SPARKLE_PUBLIC_ED_KEY)
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400
+        # 安装更新的进度窗口由 Sparkle 的另一个进程显示，它读未本地化的 Info.plist；不写这项会显示「正在更新CherryUtility」。
+        # Sparkle 只在编译开关 SPARKLE_NORMALIZE_INSTALLED_APPLICATION_NAME（默认关）打开时按它改包名，所以不影响文件名。
+        SUBundleName: CHERRY Utility
     entitlements:
       path: App/CherryUtility.entitlements
       properties:
@@ -105,8 +116,6 @@ targets:
         PRODUCT_NAME: CherryUtility
         # 快捷指令 / Spotlight 意图（App/Sources/Intents）：构建时提取 Metadata.appintents，系统据此发现动作。
         LM_SKIP_METADATA_EXTRACTION: "NO"
-        MARKETING_VERSION: "1.1.0"
-        CURRENT_PROJECT_VERSION: "3"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SPARKLE_FEED_URL: "https://odeployer.online/cherry-utility/appcast.xml"
         SPARKLE_PUBLIC_ED_KEY: "81JlZDXsML1zrxIKtUEebjNbE5HW41BhF2J3RiSH7q0="
@@ -124,9 +133,20 @@ targets:
     configFiles:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
+    # App 没在运行时 cherry 自己装配 Core 直连键盘（IOKit 适配器、设备锁、跨进程信号），模拟模式用模拟键盘。
     dependencies:
       - package: CherryKit
         product: CherryControl
+      - package: CherryKit
+        product: CherryControlService
+      - package: CherryKit
+        product: CherryCore
+      - package: CherryKit
+        product: CherryAdapters
+      - package: CherryKit
+        product: CherrySimulation
+      - package: CherryKit
+        product: CherryPresentation
       - package: ArgumentParser
         product: ArgumentParser
       - package: MCPSwiftSDK

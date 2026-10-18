@@ -1,6 +1,7 @@
 import AppIntents
 import CherryCore
 import CherryFeatures
+import CherryPresentation
 import Foundation
 
 // 写入类意图：未选配置档时修改当前配置档，未选键盘时使用唯一连接的键盘。

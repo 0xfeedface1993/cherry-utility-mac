@@ -1,0 +1,33 @@
+# homebrew-cask 的 cherry-utility：只装 App（命令行另见 cherry-cli.rb.template）。
+# Scripts/release.sh 把 {{VERSION}}、{{SHA256}} 换成版本号和 DMG 的 SHA-256，渲染到 .release/<版本>-<build>/cherry-utility.rb；
+# 以 # 开头的顶格行（即本说明）不会进入渲染结果。Scripts/verify-cask.sh 用本地 DMG 校验渲染结果。
+# app 写包的文件名 CherryUtility.app；Finder 里显示的「CHERRY Utility」来自 App 的本地化显示名，不要据此改成带空格的名字。
+cask "cherry-utility" do
+  version "{{VERSION}}"
+  sha256 "{{SHA256}}"
+
+  url "https://odeployer.online/cherry-utility/downloads/CherryUtility-#{version}.dmg"
+  name "CHERRY Utility"
+  desc "Unofficial configuration tool for CHERRY keyboards"
+  homepage "https://odeployer.online/cherry-utility/"
+
+  livecheck do
+    url "https://odeployer.online/cherry-utility/appcast.xml"
+    strategy :sparkle, &:short_version
+  end
+
+  auto_updates true
+  depends_on macos: :sequoia
+
+  app "CherryUtility.app"
+
+  zap trash: [
+    "~/Library/Application Support/CherryUtility",
+    "~/Library/Caches/online.odeployer.CherryUtility",
+    "~/Library/HTTPStorages/online.odeployer.CherryUtility",
+    "~/Library/HTTPStorages/online.odeployer.CherryUtility.binarycookies",
+    "~/Library/Preferences/online.odeployer.CherryUtility.plist",
+    "~/Library/Saved Application State/online.odeployer.CherryUtility.savedState",
+    "~/Library/WebKit/online.odeployer.CherryUtility",
+  ]
+end

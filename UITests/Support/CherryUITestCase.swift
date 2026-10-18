@@ -189,6 +189,21 @@ class CherryUITestCase: XCTestCase {
         app.menuBars.menuItems[item].click()
     }
 
+    /// ⌘, 打开设置并切到标签 `tab`（「通用」「更新」「自动化」「实验性功能」），返回设置窗口。
+    @discardableResult
+    func openSettings(tab: String, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        app.typeKey(",", modifierFlags: .command)
+        let tabButton = app.toolbars.buttons[tab].firstMatch
+        XCTAssertTrue(tabButton.waitForExistence(timeout: 5), "设置窗口没有标签「\(tab)」", file: file, line: line)
+        tabButton.click()
+        return app.windows["com_apple_SwiftUI_Settings_window"]
+    }
+
+    /// 开关当前是否打开（macOS 的 switch 值为 0 / 1）。
+    func isOn(_ toggle: XCUIElement) -> Bool {
+        (toggle.value as? Int) == 1 || (toggle.value as? String) == "1" || (toggle.value as? Bool) == true
+    }
+
     // MARK: Menu bar
 
     var statusItem: XCUIElement { app.statusItems["menubar.label"] }

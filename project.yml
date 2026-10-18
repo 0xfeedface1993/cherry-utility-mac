@@ -39,8 +39,8 @@ settings:
     # Only the app declares App Intents; skipping the extractor elsewhere avoids its "Metadata extraction skipped" warning.
     LM_SKIP_METADATA_EXTRACTION: "YES"
     # App 与 cherry 共用版本号：独立安装的 cherry 从自身内嵌的 Info.plist 报告版本。release.sh 在命令行上覆盖它们。
-    MARKETING_VERSION: "1.1.0"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "1.2.0"
+    CURRENT_PROJECT_VERSION: "4"
 targets:
   CherryUtility:
     type: application

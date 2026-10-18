@@ -94,6 +94,21 @@
             <p>直接使用 CHERRY 官方升级包：校验 MD5 与 CRC 后通过 USB 刷写，键盘重启后读回核对。</p>
           </article>
           <article class="feature">
+            <div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="11" height="11" rx="3"/><rect x="10" y="10" width="11" height="11" rx="3"/></svg></div>
+            <h3>快捷指令与 Spotlight</h3>
+            <p>10 个动作：读取状态和电量、切换配置档、调灯效 / 亮度 / 颜色 / 休眠、载入预设。可以放进快捷指令自动化，也能在 Spotlight 里直接输入「切换配置档」运行。</p>
+          </article>
+          <article class="feature">
+            <div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 10 3 2-3 2"/><path d="M12 15h5"/></svg></div>
+            <h3>命令行 cherry</h3>
+            <p><code>cherry status</code>、<code>cherry set --effect 呼吸</code>，写进脚本就能用。可以单独下载；应用在运行时经由它执行，没运行时直接连接键盘。</p>
+          </article>
+          <article class="feature">
+            <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="m6.3 6.3 2.8 2.8M14.9 14.9l2.8 2.8M6.3 17.7l2.8-2.8M14.9 9.1l2.8-2.8"/></svg></div>
+            <h3>AI 助手（MCP）</h3>
+            <p><code>cherry mcp</code> 让 Claude Code、Claude Desktop 等 AI 客户端读取和设置键盘。在「设置 › 自动化」里一键添加到 Claude Desktop；不提供固件操作。</p>
+          </article>
+          <article class="feature">
             <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 10 4-1.7 7-5.6 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></div>
             <h3>本地优先，不收集数据</h3>
             <p>没有账号、没有统计上报。诊断记录只保存在本机，由你决定是否导出分享。</p>
@@ -232,6 +247,10 @@
           <details>
             <summary>「自定义固件」是什么？</summary>
             <p>它可以在原厂固件上修改部分行为，例如固定 F 区的功能键逻辑，目前适用于 PIXIU 75 与 PIXIU 75 宝可梦版。这是实验性功能，默认隐藏，需要在「设置 › 实验性功能」中确认风险后才会出现，并且随时可以恢复原厂固件。</p>
+          </details>
+          <details>
+            <summary>能用快捷指令、命令行或 AI 控制键盘吗？</summary>
+            <p>可以。在快捷指令里新建快捷指令，动作在编辑器右侧的「App › CHERRY Utility」里（应用要放在「应用程序」文件夹中）；把几个动作串起来时，在动作的选项里关掉「运行时显示」，否则每一步都会停下来等你确认结果。命令行工具 cherry 可以在本页单独下载，也可以在「设置 › 自动化」里安装应用自带的那一个；应用没在运行时 cherry 直接连接键盘，这时需要在「系统设置 › 隐私与安全性 › 输入监控」里允许运行它的终端。Claude 等 AI 客户端使用 cherry mcp，在「设置 › 自动化」里添加到 Claude Desktop 或复制注册命令。命令行与 MCP 都可以在设置里分别关掉。</p>
           </details>
           <details>
             <summary>应用怎么更新？</summary>

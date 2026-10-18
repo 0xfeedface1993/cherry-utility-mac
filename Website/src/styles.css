@@ -98,6 +98,7 @@ section { padding: 96px 0 0; }
 .feature .ic { width: 44px; height: 44px; border-radius: 12px; background: var(--accent-subtle); color: var(--accent-text); display: flex; align-items: center; justify-content: center; }
 .feature h3 { margin-top: 18px; font-size: 18px; letter-spacing: -.2px; }
 .feature p { margin-top: 6px; font-size: 15px; color: var(--text-2); line-height: 1.6; }
+.feature code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em; padding: 1px 5px; border-radius: 5px; background: var(--bg-soft); color: var(--text); white-space: nowrap; }
 
 .steps { display: flex; flex-direction: column; gap: 72px; }
 .step { display: grid; grid-template-columns: 1fr 1.25fr; gap: 56px; align-items: center; }

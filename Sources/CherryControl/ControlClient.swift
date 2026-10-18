@@ -20,15 +20,19 @@ public final class ControlClient {
     private var buffer = LineBuffer()
     private var lines: [Data] = []
     private var nextID = 1
+    private let client: String?
 
-    private init(fd: Int32) {
+    private init(fd: Int32, client: String?) {
         self.fd = fd
+        self.client = client
     }
 
     deinit { Darwin.close(fd) }
 
-    /// `timeout` 是每次读写的上限；`watch` 这类长连接传 nil。
-    public static func connect(path: String, timeout: Duration? = .seconds(20)) throws(ControlClientError) -> ControlClient {
+    /// `timeout` 是每次读写的上限；`watch` 这类长连接传 nil。`client` 是 `ControlClientKind` 之一，随每个请求发出。
+    public static func connect(
+        path: String, timeout: Duration? = .seconds(20), client: String? = nil
+    ) throws(ControlClientError) -> ControlClient {
         guard UnixSocket.fits(path) else { throw .pathTooLong(path) }
         let fd: Int32
         do { fd = try UnixSocket.make() } catch { throw .system(operation: error.operation, code: error.code) }
@@ -44,7 +48,7 @@ public final class ControlClient {
         }
         UnixSocket.setTimeout(fd, option: SO_RCVTIMEO, timeout)
         UnixSocket.setTimeout(fd, option: SO_SNDTIMEO, timeout)
-        return ControlClient(fd: fd)
+        return ControlClient(fd: fd, client: client)
     }
 
     /// 发一个请求并等它的响应。
@@ -63,7 +67,7 @@ public final class ControlClient {
         let id = nextID
         nextID += 1
         let line: Data
-        do { line = try ControlCoding.line(ControlRequest(id: id, method: method, params: params)) } catch { throw .malformedResponse }
+        do { line = try ControlCoding.line(ControlRequest(id: id, method: method, params: params, client: client)) } catch { throw .malformedResponse }
         guard UnixSocket.writeAll(fd, line) else { throw errno == EAGAIN ? .timeout : .disconnected }
         return id
     }

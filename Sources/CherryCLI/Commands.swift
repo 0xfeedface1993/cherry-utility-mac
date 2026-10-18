@@ -1,6 +1,7 @@
 import ArgumentParser
 import CherryControl
 import Foundation
+import Synchronization
 
 struct StatusCommand: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "status", abstract: "显示电量、连接方式、固件和各配置档的灯光与休眠设置。")
@@ -162,7 +163,14 @@ struct VersionCommand: ParsableCommand {
     @OptionGroup var connection: ConnectionOptions
 
     func run() throws {
-        try perform(connection, json: output.json, { try $0.call(.version) }, human: Output.version)
+        do {
+            let session = try Session.open(connection)
+            let result = try session.call(.version)
+            print(output.json ? Output.json(result) : Output.version(result, direct: session.isDirect))
+        } catch let error as CLIError {
+            report(error, json: output.json)
+            throw ExitCode(error.exitCode)
+        }
     }
 }
 
@@ -177,26 +185,83 @@ struct WatchCommand: ParsableCommand {
     func run() throws {
         do {
             let session = try Session.open(connection, timeout: nil)
-            let id: Int
-            do { id = try session.client.send(.watch) } catch { throw CLIError(error) }
-            while true {
-                let response: ControlResponse
-                do { response = try session.client.receive() } catch { throw CLIError(error) }
-                guard response.id == id else { continue }
+            let failure = Mutex<CLIError?>(nil)
+            let json = output.json
+            try session.watch { response in
                 guard response.ok, let result = response.result else {
-                    throw CLIError.rejected(response.error ?? ControlFailure(code: "internalError", message: "监听失败"))
+                    failure.withLock { $0 = .rejected(response.error ?? ControlFailure(code: "internalError", message: "监听失败")) }
+                    return false
                 }
                 guard let change = result.change else {
                     // 确认写到标准错误（不是 JSON 通道），调用方据此知道订阅已生效。
                     if let message = result.message { FileHandle.standardError.write(Data((message + "\n").utf8)) }
-                    continue
+                    return true
                 }
-                print(output.json ? Output.jsonLine(change) : Output.change(change, at: Date()))
+                print(json ? Output.jsonLine(change) : Output.change(change, at: Date()))
                 fflush(stdout)
+                return true
             }
+            if let error = failure.withLock({ $0 }) { throw error }
         } catch let error as CLIError {
             report(error, json: output.json, line: true)
             throw ExitCode(error.exitCode)
         }
+    }
+}
+
+/// 当前会走哪条路，以及排查需要的位置、权限和版本。
+struct DoctorCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "doctor", abstract: "显示命令会经由 CHERRY Utility 还是直接连接键盘，以及权限、位置与版本。"
+    )
+    @OptionGroup var output: OutputOptions
+    @OptionGroup var connection: ConnectionOptions
+
+    struct Report: Encodable {
+        var route: String
+        var socket: String?
+        var appVersion: ControlVersion?
+        var cliVersion: ControlVersion
+        var inputMonitoring: String?
+        var dataDirectory: String
+        var simulation: String?
+        var problem: String?
+    }
+
+    func run() throws {
+        let locations = SharedLocations(explicitSocket: connection.socket)
+        var report = Report(
+            route: "direct", socket: locations.socket, appVersion: nil, cliVersion: CherryVersion.current(), inputMonitoring: nil,
+            dataDirectory: locations.dataDirectory.path(percentEncoded: false), simulation: locations.simulation, problem: nil
+        )
+        do {
+            let session = try Session.open(connection)
+            if session.isDirect {
+                report.inputMonitoring = "granted"
+            } else {
+                report.route = "viaApp"
+                report.appVersion = try session.call(.version).version
+            }
+        } catch {
+            report.route = locations.explicitSocket == nil && !connection.noLaunch ? "direct" : "viaApp"
+            report.problem = error.message
+            if case .rejected(let failure) = error, failure.code == "accessDenied" { report.inputMonitoring = "denied" }
+        }
+        print(output.json ? Output.json(report) : Self.text(report))
+        if report.problem != nil { throw ExitCode(1) }
+    }
+
+    static func text(_ report: Report) -> String {
+        var lines = [
+            report.route == "viaApp" ? "路径：经由 CHERRY Utility" : "路径：直接连接键盘（CHERRY Utility 没在运行）",
+            "socket：\(report.socket ?? "（无）")",
+            "cherry \(report.cliVersion.app) (\(report.cliVersion.build))，控制协议 v\(ControlProtocol.version)",
+        ]
+        if let app = report.appVersion { lines.append("CHERRY Utility \(app.app) (\(app.build))，协议 v\(app.protocolVersion)") }
+        if let access = report.inputMonitoring { lines.append("输入监控：\(access == "granted" ? "已允许" : "未允许")") }
+        lines.append("数据目录：\(report.dataDirectory)")
+        if let simulation = report.simulation { lines.append("模拟键盘：\(simulation)") }
+        if let problem = report.problem { lines.append("问题：\(problem)") }
+        return lines.joined(separator: "\n")
     }
 }

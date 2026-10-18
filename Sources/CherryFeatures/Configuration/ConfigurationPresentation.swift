@@ -1,4 +1,5 @@
 import CherryCore
+import CherryPresentation
 import Foundation
 
 // UIModel → Presentation mapping for the configuration screen. Views only ever see these value types.

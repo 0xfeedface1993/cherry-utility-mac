@@ -1,8 +1,8 @@
 import CherryCore
 import Foundation
 
-/// 界面错误文案的唯一入口：Core 与适配器只抛类型化错误，文案在 Features 里映射。
-protocol UserFacingError: Error {
+/// 界面错误文案的唯一入口：Core 与适配器只抛类型化错误，文案在这里映射，界面、快捷指令与命令行共用。
+public protocol UserFacingError: Error {
     var message: String { get }
 }
 
@@ -15,7 +15,7 @@ extension Error {
 }
 
 extension CherryError: UserFacingError {
-    var message: String {
+    public var message: String {
         switch self {
         case .deviceNotFound(let id): "未找到设备 \(id)"
         case .interfaceNotFound(let page): String(format: "设备没有 UsagePage 0x%04X 接口（需用 USB 线有线连接）", page)
@@ -36,12 +36,28 @@ extension CherryError: UserFacingError {
         case .unsupportedSetting(let s): "不支持的设置：\(s)"
         case .writeNotApplied(let s): "写入未生效：\(s)"
         case .storage(let s): "读写本地文件失败：\(s)"
+        case .deviceBusy(.updatingFirmware): "这把键盘正在升级固件，请完成后再试"
+        case .deviceBusy(.inUse): "另一个程序（CHERRY Utility 或 cherry 命令）正在使用这把键盘，请稍后再试"
+        }
+    }
+}
+
+extension AutomationSetupError: UserFacingError {
+    public var message: String {
+        switch self {
+        case .noCommandLineTool: "找不到可用的 cherry 命令：请先安装命令行工具"
+        case .standaloneToolInstalled(let path): "\(path) 已是独立安装的 cherry，不覆盖"
+        case .foreignTool(let path): "\(path) 指向的不是 CHERRY Utility 自带的 cherry，不改动它"
+        case .authorizationCancelled: "已取消管理员授权"
+        case .unreadableConfiguration(let path, let reason): "无法读取 \(path)（\(reason)），没有修改"
+        case .managedByClient(let client): "\(AutomationText.name(of: client)) 的配置请用它自己的命令添加"
+        case .io(let s): "读写文件失败：\(s)"
         }
     }
 }
 
 extension FirmwareIncompatibility {
-    var message: String {
+    public var message: String {
         switch self {
         case let .targetMismatch(packageVendorID, packageProductID, deviceVendorID, deviceProductID):
             String(format: "升级包目标 %04X:%04X，设备为 %04X:%04X", packageVendorID, packageProductID, deviceVendorID, deviceProductID)

@@ -3,11 +3,23 @@ import CherryControl
 import Foundation
 
 struct ConnectionOptions: ParsableArguments {
-    @Option(name: .customLong("socket"), help: ArgumentHelp("控制 socket 路径（测试用）。", visibility: .hidden))
+    @Option(name: .customLong("socket"), help: ArgumentHelp("控制 socket 路径（测试用）。指定后只连这个 socket，不直连键盘。", visibility: .hidden))
     var socket: String?
 
-    @Flag(name: .customLong("no-launch"), help: "App 没运行时不自动启动，直接报错。")
+    @Flag(name: .customLong("via-app"), help: "CHERRY Utility 没在运行时先在后台启动它，再经由它执行（默认直接连接键盘）。")
+    var viaApp = false
+
+    @Flag(name: .customLong("direct"), help: "不经由 CHERRY Utility，直接连接键盘（排查用）。")
+    var direct = false
+
+    @Flag(name: .customLong("no-launch"), help: "只经由运行中的 CHERRY Utility：它没在运行时直接报错，不启动它，也不直连键盘。")
     var noLaunch = false
+
+    func validate() throws {
+        guard [viaApp, direct, noLaunch].filter({ $0 }).count <= 1 else {
+            throw ValidationError("--via-app、--direct、--no-launch 只能选一个")
+        }
+    }
 }
 
 struct KeyboardOption: ParsableArguments {
@@ -79,45 +91,105 @@ enum CLIError: Error, Equatable {
     }
 }
 
-/// 到运行中 App 的一个连接。默认路径上没有 App 时在后台启动它；显式指定 socket 时不启动（测试与模拟模式）。
+/// 一次命令的执行通道：经由运行中的 App（socket），或在本进程直接连接键盘（`LocalControl`）。
+///
+/// 路由：
+/// - 指定了 socket（`--socket` 或 `CHERRY_CONTROL_SOCKET`）：只连它，连不上就报「没有运行」，绝不直连；
+/// - `--direct`：直连；
+/// - 默认 socket 有 App 应答：经由 App；
+/// - 没有应答：`--via-app` 时在后台启动 App 再经由它，`--no-launch` 时报错，否则直连。
+/// `cherry mcp` 每次工具调用都重新路由：App 后来启动了，之后的调用就经由它。
 struct Session {
-    let client: ControlClient
+    enum Route {
+        case app(ControlClient)
+        case direct(LocalControl)
+    }
+
+    let route: Route
+    /// `ControlClientKind` 之一，随每个请求发出，App 据此套用各自的开关。
+    let client: String
 
     static func open(
-        _ options: ConnectionOptions, timeout: Duration? = .seconds(20),
+        _ options: ConnectionOptions, client: String = ControlClientKind.commandLine, timeout: Duration? = .seconds(20),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws(CLIError) -> Session {
-        try open(socket: options.socket, noLaunch: options.noLaunch, timeout: timeout, environment: environment)
+        try open(
+            socket: options.socket, viaApp: options.viaApp, direct: options.direct, noLaunch: options.noLaunch,
+            client: client, timeout: timeout, environment: environment
+        )
     }
 
     static func open(
-        socket: String?, noLaunch: Bool, timeout: Duration? = .seconds(20),
+        socket: String?, viaApp: Bool = false, direct: Bool = false, noLaunch: Bool = false,
+        client: String = ControlClientKind.commandLine, timeout: Duration? = .seconds(20),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws(CLIError) -> Session {
-        let explicit = socket ?? environment[ControlProtocol.socketEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 }
-        let path = explicit ?? ControlProtocol.defaultSocketPath
-        do {
-            return Session(client: try ControlClient.connect(path: path, timeout: timeout))
-        } catch .unavailable where explicit == nil && !noLaunch {
-            try launchApp()
-            return try waitForApp(path: path, timeout: timeout)
-        } catch .unavailable {
-            throw .appUnavailable("CHERRY Utility 没有运行（socket：\(path)）")
-        } catch {
-            throw CLIError(error)
+        let locations = SharedLocations(environment: environment, explicitSocket: socket)
+        if direct { return Session(route: .direct(try LocalControl.shared(locations)), client: client) }
+        if let explicit = locations.explicitSocket {
+            do {
+                return Session(route: .app(try ControlClient.connect(path: explicit, timeout: timeout, client: client)), client: client)
+            } catch .unavailable {
+                throw .appUnavailable("CHERRY Utility 没有运行（socket：\(explicit)）")
+            } catch {
+                throw CLIError(error)
+            }
         }
+        if let path = locations.socket {
+            do {
+                return Session(route: .app(try ControlClient.connect(path: path, timeout: timeout, client: client)), client: client)
+            } catch .unavailable {
+                // 没有 App 应答：按选项启动 App、报错或直连。
+            } catch {
+                throw CLIError(error)
+            }
+            if viaApp {
+                // 模拟运行里启动的会是真机模式的 App，绝不这样做。
+                guard !locations.isSimulated else { throw .failed("模拟模式下不启动 CHERRY Utility") }
+                try launchApp()
+                return Session(route: .app(try waitForApp(path: path, timeout: timeout, client: client)), client: client)
+            }
+        }
+        if noLaunch || viaApp { throw .appUnavailable("CHERRY Utility 没有运行") }
+        return Session(route: .direct(try LocalControl.shared(locations)), client: client)
+    }
+
+    var isDirect: Bool {
+        if case .direct = route { true } else { false }
     }
 
     func call(_ method: ControlMethod, _ params: ControlParams? = nil) throws(CLIError) -> ControlResult {
         let response: ControlResponse
-        do { response = try client.call(method, params) } catch { throw CLIError(error) }
+        switch route {
+        case .app(let connection):
+            do { response = try connection.call(method, params) } catch { throw CLIError(error) }
+        case .direct(let local):
+            response = local.call(ControlRequest(id: 1, method: method, params: params, client: client))
+        }
         guard response.ok, let result = response.result else {
             throw .rejected(response.error ?? ControlFailure(code: "internalError", message: "CHERRY Utility 没有返回结果"))
         }
         return result
     }
 
-    /// 命令行工具在 App 包内（`CHERRY Utility.app/Contents/MacOS/cherry`，可经符号链接调用）时启动所在的 App，
+    /// `watch`：把每条推送交给 `handle`，直到它返回 false、连接断开或（直连时）事件流结束。
+    func watch(_ handle: @escaping @Sendable (ControlResponse) -> Bool) throws(CLIError) {
+        switch route {
+        case .app(let connection):
+            let id: Int
+            do { id = try connection.send(.watch) } catch { throw CLIError(error) }
+            while true {
+                let response: ControlResponse
+                do { response = try connection.receive() } catch { throw CLIError(error) }
+                guard response.id == id else { continue }
+                if !handle(response) { return }
+            }
+        case .direct(let local):
+            local.watch(ControlRequest(id: 1, method: .watch, client: client), handle)
+        }
+    }
+
+    /// 命令行工具在 App 包内（`CherryUtility.app/Contents/MacOS/cherry`，可经符号链接调用）时启动所在的 App，
     /// 否则按 bundle ID 启动已安装的 App。`--background` 让 App 不显示主窗口。
     private static func launchApp() throws(CLIError) {
         var arguments = ["-g", "-j"]
@@ -146,7 +218,7 @@ struct Session {
             throw .appUnavailable("启动 CHERRY Utility 超时")
         }
         guard open.terminationStatus == 0 else {
-            throw .appUnavailable("找不到 CHERRY Utility。请先把它安装到「应用程序」并打开一次")
+            throw .appUnavailable("找不到 CHERRY Utility。可以从 https://odeployer.online/cherry-utility/ 下载，或者 brew install --cask cherry-utility")
         }
     }
 
@@ -160,10 +232,10 @@ struct Session {
     }
 
     /// App 冷启动后要先完成发现与组合根装配，socket 才会出现；最多等 10 秒。
-    private static func waitForApp(path: String, timeout: Duration?) throws(CLIError) -> Session {
+    private static func waitForApp(path: String, timeout: Duration?, client: String) throws(CLIError) -> ControlClient {
         for _ in 0..<100 {
             usleep(100_000)
-            if let client = try? ControlClient.connect(path: path, timeout: timeout) { return Session(client: client) }
+            if let connection = try? ControlClient.connect(path: path, timeout: timeout, client: client) { return connection }
         }
         throw .appUnavailable("已启动 CHERRY Utility，但 10 秒内没有响应")
     }

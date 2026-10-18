@@ -28,6 +28,8 @@ final class AutomationProbe: Sendable {
     let base: KeyboardConfiguration
     private let intents = Mutex<[(ConfigurationIntent, KeyboardID)]>([])
     private let failure = Mutex<CherryError?>(nil)
+    /// 写入路径不读配置（B4）；只有收到其他进程的信号时才重读。
+    private let reads = Mutex(0)
 
     init(activeProfile: Int = 1) {
         base = try! KeyboardConfiguration(activeProfile: activeProfile, profiles: (0..<3).map { n in
@@ -38,23 +40,26 @@ final class AutomationProbe: Sendable {
     }
 
     var submitted: [(ConfigurationIntent, KeyboardID)] { intents.withLock { $0 } }
+    var readCount: Int { reads.withLock { $0 } }
     func fail(with error: CherryError?) { failure.withLock { $0 = error } }
 
     func automation(
         _ discovery: some KeyboardDiscoveryPort, presets: [ProfilePreset] = [], activity: FirmwareActivity? = nil,
-        feed: ConfigurationChangeFeed = .init(), battery: BatteryStatus? = nil, sightings: KeyboardSightings = .init()
+        feed: ConfigurationChangeFeed = .init(), battery: BatteryStatus? = nil, sightings: KeyboardSightings = .init(),
+        signals: any CrossProcessSignalPort = ProcessLocalSignals()
     ) -> KeyboardAutomation {
         KeyboardAutomation(
             discovery: discovery,
             snapshot: { [base] _ in VendorSnapshot(battery: battery, status: nil, configuration: base) },
             battery: { _ in try #require(battery) },
+            configuration: { [base] _ in self.reads.withLock { $0 += 1 }; return base },
             apply: { [base] intent, keyboard in
                 if let error = self.failure.withLock({ $0 }) { throw error }
                 self.intents.withLock { $0.append((intent, keyboard.id)) }
                 return intent.applied(to: base)
             },
             presets: { presets },
-            feed: feed, activity: activity, sightings: sightings, clock: ImmediateClock()
+            feed: feed, signals: signals, activity: activity, sightings: sightings, clock: ImmediateClock()
         )
     }
 }
@@ -236,6 +241,7 @@ struct KeyboardAutomationTests {
         let automation = probe.automation(Self.discovery(Self.pixiu75))
         let result = try await automation.update(SettingsRequest(effect: "Breathing", brightness: 2), profile: nil, on: nil)
         let (intent, id) = try #require(probe.submitted.first)
+        #expect(probe.readCount == 0)
         #expect(id == Self.pixiu75.id && intent.activeProfile == nil)
         #expect(intent.patches.isEmpty)
         #expect(intent.activePatch?.fields == [.effect, .brightness])

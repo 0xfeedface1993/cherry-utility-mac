@@ -3,7 +3,7 @@ import Foundation
 public enum DiagnosticFailure: String, Codable, Sendable {
     case cancelled, deviceNotFound, interfaceNotFound, accessDenied, openFailed, ioFailed, disconnected
     case timeout, malformedReply, deviceRejected, unsupportedModel, firmwareFormat, checksumMismatch
-    case incompatibleFirmware, otaFailed, network, presetFormat, unsupportedSetting, writeNotApplied, storage, unknown
+    case incompatibleFirmware, otaFailed, network, presetFormat, unsupportedSetting, writeNotApplied, storage, deviceBusy, unknown
 
     public init(_ error: any Error) {
         if error is CancellationError { self = .cancelled; return }
@@ -29,6 +29,7 @@ public enum DiagnosticFailure: String, Codable, Sendable {
         case .unsupportedSetting: self = .unsupportedSetting
         case .writeNotApplied: self = .writeNotApplied
         case .storage: self = .storage
+        case .deviceBusy: self = .deviceBusy
         }
     }
 

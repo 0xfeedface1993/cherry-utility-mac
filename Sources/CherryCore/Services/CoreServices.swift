@@ -17,11 +17,13 @@ public struct CoreServices: Sendable {
         catalog: any FirmwareCatalogPort,
         downloader: any FirmwareDownloadPort,
         timeouts: FirmwareFlasher.Timeouts = .init(),
+        lock: any DeviceLockPort = ProcessLocalDeviceLock(),
         diagnostics: Diagnostics = .noop,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
-        // 每个键盘接口一个队列：菜单栏、各页面和固件页轮流使用，而不是因“接口被占用”失败。
-        let channels = ExclusiveChannelProvider(base: base, diagnostics: diagnostics)
+        // 每个键盘接口一个队列：菜单栏、各页面和固件页轮流使用，而不是因“接口被占用”失败；
+        // 再按键盘取跨进程租约，App 与命令行进程不会交错各自的事务。
+        let channels = ExclusiveChannelProvider(base: base, lock: lock, diagnostics: diagnostics)
         inspector = KeyboardInspector(channels: channels, diagnostics: diagnostics)
         configurator = KeyboardConfigurator(channels: channels, diagnostics: diagnostics)
         writer = KeyboardConfigurationWriter(configurator: configurator)
@@ -55,16 +57,18 @@ extension CoreServices {
     /// `activity` 标记正在刷写固件的键盘，期间拒绝自动化写入。
     public func automation(
         presets: PresetLibrary, activity: FirmwareActivity? = nil, feed: ConfigurationChangeFeed = .init(),
+        signals: any CrossProcessSignalPort = ProcessLocalSignals(),
         timing: KeyboardAutomation.Timing = .init(), clock: any Clock<Duration> = ContinuousClock()
     ) -> KeyboardAutomation {
-        let inspector = inspector, writer = writer
+        let inspector = inspector, configurator = configurator, writer = writer
         return KeyboardAutomation(
             discovery: discovery,
             snapshot: { try await inspector.vendorSnapshot(of: $0) },
             battery: { try await inspector.battery(of: $0) },
+            configuration: { try await configurator.configuration(of: $0) },
             apply: { try await writer.apply($0, on: $1) },
             presets: { try await presets.presets() },
-            feed: feed, activity: activity, sightings: sightings, timing: timing, clock: clock
+            feed: feed, signals: signals, activity: activity, sightings: sightings, timing: timing, clock: clock
         )
     }
 }

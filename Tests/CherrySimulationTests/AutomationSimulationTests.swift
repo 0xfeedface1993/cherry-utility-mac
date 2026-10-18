@@ -20,8 +20,10 @@ struct AutomationSimulationTests {
         func delete(id: UUID) async throws { lock.withLock { items.removeAll { $0.id == id } } }
     }
 
-    static func stack(_ scenario: String = "pixiu75") -> Stack {
-        let hub = SimulatedKeyboardHub(scenario: .named(scenario))
+    static func stack(_ scenario: String = "pixiu75", sharedState: URL? = nil) -> Stack {
+        var named = SimulatedKeyboardHub.Scenario.named(scenario)
+        named.sharedState = sharedState
+        let hub = SimulatedKeyboardHub(scenario: named)
         let services = CoreServices(discovery: hub, channels: hub, catalog: SimulatedFirmwareCatalog(), downloader: SimulatedFirmwareCatalog())
         let presets = PresetLibrary(store: MemoryPresets())
         let timing = KeyboardAutomation.Timing(discoveryTimeout: .milliseconds(50), settle: .zero, poll: .milliseconds(10))
@@ -51,6 +53,23 @@ struct AutomationSimulationTests {
         #expect(after?.profile(1)?.lightingEffect == snapshot.configuration.profile(1)?.lightingEffect)
         #expect(after?.profile(1)?.randomColor == snapshot.configuration.profile(1)?.randomColor)
         #expect(after?.activeProfile == 0)
+    }
+
+    /// 两套各自装配的 Core（相当于 App 与直连的命令行）对着同一个状态文件：一方写入，另一方读到。
+    @Test func processesSharingAStateFileSeeEachOthersWrites() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "CherrySimulationState-\(UUID().uuidString).bin")
+        defer {
+            try? FileManager.default.removeItem(at: file)
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: file.path + ".lock"))
+        }
+        let app = Self.stack(sharedState: file), cli = Self.stack(sharedState: file)
+        _ = try await cli.automation.update(SettingsRequest(effect: "呼吸", brightness: 1), profile: 2, on: nil)
+        _ = try await cli.automation.activate(profile: 0, on: nil)
+        let seen = try #require(try await app.automation.status(of: nil).snapshot?.configuration)
+        #expect(seen.activeProfile == 0 && seen.profile(2)?.lightingEffect == 2 && seen.profile(2)?.brightness == 1)
+        // 新启动的一方从文件开始，而不是从模拟场景的初始值开始。
+        let later = try #require(try await Self.stack(sharedState: file).automation.status(of: nil).snapshot?.configuration)
+        #expect(later == seen)
     }
 
     /// 不指定配置档的并发写入与切换（B4）：每个写入报告的配置档里都有它写的字段，报告的就是读回里它落到的那一档。

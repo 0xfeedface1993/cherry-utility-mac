@@ -228,7 +228,7 @@ struct CherryMCPIntegrationTests {
         try socketServer.start()
         defer { socketServer.stop() }
 
-        let server = await CherryMCP.server(version: "1.2.0", backend: .socket(socket: path, noLaunch: true, environment: [:]))
+        let server = await CherryMCP.server(version: "1.2.0", backend: .routed(try ConnectionOptions.parse(["--socket", path]), environment: [:]))
         let (clientTransport, serverTransport) = await InMemoryTransport.createConnectedPair()
         try await server.start(transport: serverTransport)
         let client = Client(name: "cherry-tests", version: "1")

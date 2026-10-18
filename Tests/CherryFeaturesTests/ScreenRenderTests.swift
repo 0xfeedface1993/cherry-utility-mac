@@ -85,7 +85,7 @@ struct ScreenRenderTests {
             var state = SettingsFeature.State()
             state.tab = tab
             let store = Store(initialState: state) { SettingsFeature() } withDependencies: { configure(&$0, keyboards: [.preview]) }
-            try await renderWindow(SettingsView(store: store), size: CGSize(width: 560, height: tab == .updates ? 380 : 280), appearance: .aqua, name: "settings-\(tab.fileName)") {}
+            try await renderWindow(SettingsView(store: store), size: CGSize(width: 560, height: tab == .automation ? 650 : tab == .updates ? 380 : 280), appearance: .aqua, name: "settings-\(tab.fileName)") {}
         }
     }
 
@@ -284,6 +284,7 @@ private extension SettingsFeature.Tab {
         switch self {
         case .general: "general"
         case .updates: "updates"
+        case .automation: "automation"
         case .labs: "labs"
         }
     }

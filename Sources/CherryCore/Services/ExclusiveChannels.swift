@@ -67,6 +67,8 @@ public final class ChannelGate<Key: Hashable & Sendable>: Sendable {
 
 /// Decorator that gives callers exclusive, queued access to one interface of one keyboard: a second user
 /// (menu-bar poll, settings screen, firmware check…) waits for the first channel to be closed instead of failing.
+/// After the in-process gate it takes the keyboard's cross-process lease, so the app and a `cherry` process never
+/// interleave transactions; the lease is released together with the gate.
 public struct ExclusiveChannelProvider: ReportChannelProvider {
     public struct Key: Hashable, Sendable {
         let keyboard: KeyboardID
@@ -75,11 +77,16 @@ public struct ExclusiveChannelProvider: ReportChannelProvider {
 
     private let base: any ReportChannelProvider
     private let gate: ChannelGate<Key>
+    private let lock: any DeviceLockPort
     private let diagnostics: Diagnostics
 
-    public init(base: any ReportChannelProvider, gate: ChannelGate<Key> = ChannelGate(), diagnostics: Diagnostics = .noop) {
+    public init(
+        base: any ReportChannelProvider, gate: ChannelGate<Key> = ChannelGate(), lock: any DeviceLockPort = ProcessLocalDeviceLock(),
+        diagnostics: Diagnostics = .noop
+    ) {
         self.base = base
         self.gate = gate
+        self.lock = lock
         self.diagnostics = diagnostics
     }
 
@@ -107,6 +114,13 @@ public struct ExclusiveChannelProvider: ReportChannelProvider {
         let resumed = diagnostics.now()
         diagnostics.emit(.channelResume, context: parent, origin: origin,
                          metrics: .init(durationNs: resumed >= acquired.granted ? resumed - acquired.granted : 0))
+        let lease: any DeviceLease
+        do { lease = try await lock.acquire(keyboard, purpose: .session) }
+        catch {
+            acquired.span.finish(error: error)
+            gate.release(key)
+            throw error
+        }
         do {
             let channel = try await TraceContext.$current.withValue(parent) {
                 try await diagnostics.measure(.channelOpen) {
@@ -115,10 +129,12 @@ public struct ExclusiveChannelProvider: ReportChannelProvider {
             }
             return GatedChannel(base: channel) { [gate] in
                 acquired.span.finish()
+                lease.release()
                 gate.release(key)
             }
         } catch {
             acquired.span.finish(error: error)
+            lease.release()
             gate.release(key)
             throw error
         }

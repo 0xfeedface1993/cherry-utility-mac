@@ -69,8 +69,12 @@ enum Output {
         return presets.map { "\($0.name)  \($0.model ?? "任何型号")  \($0.id)" }.joined(separator: "\n")
     }
 
-    static func version(_ result: ControlResult) -> String {
+    /// 直连时 `version` 来自 cherry 自己（没有 App 参与）；经由 App 时是 App 的版本。
+    static func version(_ result: ControlResult, direct: Bool = false) -> String {
         guard let version = result.version else { return message(result) }
+        if direct {
+            return "cherry \(version.app) (\(version.build))，控制协议 v\(ControlProtocol.version) · 直接连接键盘（CHERRY Utility 没在运行）"
+        }
         return "cherry（控制协议 v\(ControlProtocol.version)）· CHERRY Utility \(version.app) (\(version.build))，App 协议 v\(version.protocolVersion)"
     }
 

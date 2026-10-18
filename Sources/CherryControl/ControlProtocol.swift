@@ -67,17 +67,26 @@ public struct ControlParams: Codable, Equatable, Sendable {
     }
 }
 
+/// 请求从哪个入口发出。App 据此套用「设置 › 自动化」里各自的开关；没有这个字段的旧客户端按命令行处理。
+public enum ControlClientKind {
+    public static let commandLine = "cli"
+    public static let mcp = "mcp"
+}
+
 public struct ControlRequest: Codable, Equatable, Sendable {
     public var v: Int
     public var id: Int
     public var method: ControlMethod
     public var params: ControlParams?
+    /// `ControlClientKind` 之一；协议 v1 中可选。
+    public var client: String?
 
-    public init(id: Int, method: ControlMethod, params: ControlParams? = nil) {
+    public init(id: Int, method: ControlMethod, params: ControlParams? = nil, client: String? = nil) {
         v = ControlProtocol.version
         self.id = id
         self.method = method
         self.params = params
+        self.client = client
     }
 }
 

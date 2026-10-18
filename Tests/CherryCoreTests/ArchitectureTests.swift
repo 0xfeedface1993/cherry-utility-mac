@@ -47,6 +47,17 @@ struct ArchitectureTests {
         }
     }
 
+    /// 文案、控制服务与命令行不依赖界面框架：独立的 cherry 命令在 App 之外直连键盘时，只带 Core、适配器和文案。
+    @Test func commandLineStackStaysFreeOfUserInterfaceFrameworks() throws {
+        let forbidden: Set<String> = ["SwiftUI", "AppKit", "ComposableArchitecture", "CherryFeatures"]
+        for module in ["CherryPresentation", "CherryControlService", "CherryCLI"] {
+            for (name, text) in try Self.files(module) {
+                let imports = Set(text.split(separator: "\n").filter { $0.hasPrefix("import ") }.map { String($0.dropFirst(7)) })
+                #expect(imports.isDisjoint(with: forbidden), "\(module)/\(name) 引入了 \(imports.intersection(forbidden))")
+            }
+        }
+    }
+
     @Test func domainTypesCarryNoObservability() throws {
         for (name, text) in try Self.files("CherryCore", under: "Domain") {
             #expect(!text.contains("TraceContext") && !text.contains("Diagnostic"), "\(name) 的领域类型引用了观测类型")

@@ -1,4 +1,5 @@
 import CherryCore
+import CherryPresentation
 import Foundation
 
 // MARK: - Presentation
@@ -32,16 +33,6 @@ struct MenuBarLightingPresentation: Equatable {
         let id: Int
         let title: String
         let isActive: Bool
-    }
-}
-
-extension DeviceStatusBlock.ConnectionMode {
-    var displayName: String {
-        switch self {
-        case .wired: "有线 USB"
-        case .wireless(let raw): "无线（模式值 \(raw)）"
-        case .unknown(let raw): "未知模式 \(raw)"
-        }
     }
 }
 

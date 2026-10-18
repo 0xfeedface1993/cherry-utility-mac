@@ -253,7 +253,7 @@ public enum InputMonitoringStatus: Equatable, Sendable {
     case undetermined
 }
 
-/// 类型化错误；字符串关联值只是技术细节。界面文案在 CherryFeatures 的 ErrorPresentation。
+/// 类型化错误；字符串关联值只是技术细节。界面文案在 CherryPresentation 的 ErrorPresentation。
 public enum CherryError: Error, Equatable, Sendable {
     case deviceNotFound(KeyboardID)
     case interfaceNotFound(usagePage: UInt16)
@@ -274,4 +274,13 @@ public enum CherryError: Error, Equatable, Sendable {
     case unsupportedSetting(String)
     case writeNotApplied(String)
     case storage(String)
+    /// 另一个进程（App 或命令行）正在使用这把键盘，等待超时；或者它正在刷写固件。
+    case deviceBusy(DeviceBusyReason)
+}
+
+public enum DeviceBusyReason: Equatable, Sendable {
+    /// 另一个进程正在刷写这把键盘的固件；刷写期间不等待，直接拒绝。
+    case updatingFirmware
+    /// 另一个进程的会话一直没有结束。
+    case inUse
 }

@@ -122,4 +122,97 @@ struct SettingsFeatureTests {
         defaults.removePersistentDomain(forName: suite)
         return defaults
     }
+
+    // MARK: - 自动化
+
+    nonisolated static let snapshot = AutomationEntriesSnapshot(
+        enabled: [.commandLine: true, .mcp: true], activity: AutomationActivity(), endpoint: .listening(path: "/tmp/c.sock"),
+        commandLineTool: .notInstalled, bundledTool: "/Applications/CherryUtility.app/Contents/MacOS/cherry",
+        registrations: [.claudeDesktop: .notRegistered, .claudeCode: .clientNotInstalled],
+        launch: MCPServerLaunch(command: "/Applications/CherryUtility.app/Contents/MacOS/cherry")
+    )
+
+    /// 打开设置时加载状态，并在窗口打开期间接收命令行与 MCP 的调用记录。
+    @Test func automationStatusLoadsAndFollowsTheActivity() async {
+        let (activity, continuation) = AsyncStream.makeStream(of: AutomationActivity.self)
+        let store = TestStore(initialState: SettingsFeature.State()) {
+            SettingsFeature()
+        } withDependencies: {
+            $0.defaultAppStorage = Self.isolatedDefaults()
+            $0.appUpdateClient = AppUpdateClient(snapshot: { .unavailable }, setAutomaticallyChecks: { _ in }, setAutomaticallyDownloads: { _ in }, checkForUpdates: {})
+            $0.loginItemClient = LoginItemClient(isEnabled: { false }, setEnabled: { _ in })
+            $0.automationEntriesClient.snapshot = { Self.snapshot }
+            $0.automationEntriesClient.activityUpdates = { activity }
+        }
+        store.exhaustivity = .off
+        let task = await store.send(.task)
+        await store.receive(\.automationLoaded) { $0.automation = Self.snapshot }
+        let call = AutomationCall(entry: .mcp, operation: "status", succeeded: true, route: .direct, date: Date(timeIntervalSince1970: 0))
+        let recorded = AutomationActivity().recording(call)
+        continuation.yield(recorded)
+        await store.receive(\.automationActivityChanged) { $0.automation?.activity = recorded }
+        #expect(store.state.automation?.activityText(.mcp).contains("命令行直连 · 成功（共 1 次）") == true)
+        continuation.finish()
+        await task.cancel()
+    }
+
+    @Test func togglingAnEntryWritesThroughTheService() async {
+        let written = LockIsolated<[(AutomationEntry, Bool)]>([])
+        let store = TestStore(initialState: SettingsFeature.State()) {
+            SettingsFeature()
+        } withDependencies: {
+            $0.defaultAppStorage = Self.isolatedDefaults()
+            $0.automationEntriesClient.setEnabled = { entry, enabled in written.withValue { $0.append((entry, enabled)) } }
+            $0.automationEntriesClient.snapshot = {
+                var snapshot = Self.snapshot
+                snapshot.enabled[.mcp] = false
+                return snapshot
+            }
+        }
+        await store.send(.automationLoaded(Self.snapshot)) { $0.automation = Self.snapshot }
+        await store.send(.automationEntryToggled(.mcp, false)) { $0.automation?.enabled[.mcp] = false }
+        await store.receive(\.automationLoaded)
+        #expect(written.value.map(\.0) == [.mcp] && written.value.map(\.1) == [false])
+    }
+
+    /// 安装、注册的成功与失败都以提示显示；失败用 Core 错误的中文说明。
+    @Test func setupActionsReportTheirOutcome() async {
+        let store = TestStore(initialState: SettingsFeature.State()) {
+            SettingsFeature()
+        } withDependencies: {
+            $0.defaultAppStorage = Self.isolatedDefaults()
+            $0.automationEntriesClient.installCommandLineTool = {}
+            $0.automationEntriesClient.registerMCP = { _ in throw AutomationSetupError.unreadableConfiguration(path: "/x.json", reason: "不是有效的 JSON") }
+            $0.automationEntriesClient.snapshot = { Self.snapshot }
+        }
+        await store.send(.installCommandLineToolTapped) { $0.isPerformingAutomationSetup = true }
+        await store.receive(\.automationSetupFinished) {
+            $0.isPerformingAutomationSetup = false
+            $0.automationNotice = .init("已安装 cherry 命令，新开的终端窗口里可以直接使用")
+        }
+        await store.receive(\.automationLoaded) { $0.automation = Self.snapshot }
+        await store.send(.registerMCPTapped(.claudeDesktop)) {
+            $0.isPerformingAutomationSetup = true
+            $0.automationNotice = nil
+        }
+        await store.receive(\.automationSetupFinished) {
+            $0.isPerformingAutomationSetup = false
+            $0.automationNotice = .init("无法读取 /x.json（不是有效的 JSON），没有修改", isError: true)
+        }
+        await store.receive(\.automationLoaded)
+        await store.send(.automationCopied("注册命令")) { $0.automationNotice = .init("已复制注册命令") }
+    }
+
+    @Test func statusTextsDescribeEachState() {
+        var snapshot = Self.snapshot
+        #expect(snapshot.canInstallCommandLineTool && !snapshot.canUninstallCommandLineTool)
+        snapshot.commandLineTool = .standalone(path: "/opt/homebrew/bin/cherry")
+        #expect(snapshot.commandLineToolText == "已独立安装：/opt/homebrew/bin/cherry" && !snapshot.canInstallCommandLineTool)
+        #expect(snapshot.registrationText(.claudeCode) == "没有找到 Claude Code" && !snapshot.canRegister(.claudeCode))
+        #expect(snapshot.claudeCodeCommand == #"claude mcp add --scope user cherry -- "/Applications/CherryUtility.app/Contents/MacOS/cherry" mcp"#)
+        #expect(snapshot.mcpConfigurationJSON?.contains(#""args" : ["#) == true)
+        #expect(snapshot.endpointText == "正在监听 /tmp/c.sock")
+        #expect(snapshot.activityText(.commandLine) == "还没有调用")
+    }
+
 }

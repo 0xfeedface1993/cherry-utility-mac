@@ -12,14 +12,14 @@ struct MCPCommand: AsyncParsableCommand {
         commandName: "mcp", abstract: "作为 MCP 服务运行（stdio），供 Claude Code / Claude Desktop 等 AI 客户端读取和设置键盘。",
         discussion: """
         由 AI 客户端启动，经标准输入输出交换 JSON-RPC 消息，不要直接在终端里运行。
-        注册到 Claude Code（<App> 为 CHERRY Utility.app 的路径）：
+        注册到 Claude Code（<App> 为 App 包的路径，Finder 里显示为 CHERRY Utility，如 /Applications/CherryUtility.app）：
           claude mcp add --scope user cherry -- "<App>/Contents/MacOS/cherry" mcp
         """
     )
     @OptionGroup var connection: ConnectionOptions
 
     func run() async throws {
-        let backend = MCPBackend.socket(socket: connection.socket, noLaunch: connection.noLaunch)
+        let backend = MCPBackend.routed(connection)
         let server = await CherryMCP.server(version: CherryMCP.version(), backend: backend)
         let stdio = StdioTransport()
         try await server.start(transport: DrainingTransport(stdio, logger: stdio.logger))
@@ -33,7 +33,7 @@ enum CherryMCP {
     static let name = "cherry-utility"
 
     static let instructions = """
-    通过本机的 CHERRY Utility 读取和设置 CHERRY 键盘（配置档、灯效、亮度、速度、颜色、休眠、灯光预设）。\
+    读取和设置本机连接的 CHERRY 键盘（配置档、灯效、亮度、速度、颜色、休眠、灯光预设）。CHERRY Utility 在运行时经由它执行，否则直接连接键盘。\
     不填 keyboard 时使用唯一连接的键盘；写入类工具不填 profile 时修改当前配置档。\
     灯效表因型号而异，可先用 list_lighting_effects 查看。不提供固件操作。
     """
@@ -70,14 +70,9 @@ enum CherryMCP {
         }
     }
 
-    /// 所在 App 的版本（命令行随 App 一起发布），不在 App 包内时（`swift build`）为 `dev`。
-    /// 直接读 App 的 Info.plist：在包内时 `Bundle.main` 就是这个 App，但它的 infoDictionary 取的是 cherry 内嵌的那份（没有版本号）。
-    static func version(executable: URL? = Bundle.main.executableURL) -> String {
-        let plist = Session.enclosingAppBundle(executable: executable)?.appending(path: "Contents/Info.plist")
-        let info = plist.flatMap { try? Data(contentsOf: $0) }
-            .flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
-        let version = info?["CFBundleShortVersionString"] as? String
-        return version.flatMap { $0.isEmpty ? nil : $0 } ?? "dev"
+    /// 这个 cherry 的版本：独立安装时取自身内嵌的 Info.plist，在 App 包内时与 App 相同，`swift build` 时为 `dev`。
+    static func version(executable: URL? = Bundle.main.executableURL, own: [String: Any]? = Bundle.main.infoDictionary) -> String {
+        CherryVersion.current(executable: executable, own: own).app
     }
 }
 
@@ -85,13 +80,17 @@ enum CherryMCP {
 struct MCPBackend: Sendable {
     let call: @Sendable (ControlMethod, ControlParams) async throws -> ControlResult
 
-    /// 每次调用新开一个连接（复用 `Session.open` 的后台启动逻辑），在 GCD 线程上同步完成，不占用协作线程。
-    static func socket(
-        socket: String?, noLaunch: Bool, environment: [String: String] = ProcessInfo.processInfo.environment
+    /// 每次调用重新路由（`Session.open`）：App 在运行就经由它，不在就直连键盘；App 后来启动了，之后的调用就经由它。
+    /// 在 GCD 线程上同步完成，不占用协作线程。请求标明来自 MCP，App 据此套用 MCP 的开关。
+    static func routed(
+        _ options: ConnectionOptions, environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> MCPBackend {
-        MCPBackend { method, params in
+        let (socket, viaApp, direct, noLaunch) = (options.socket, options.viaApp, options.direct, options.noLaunch)
+        return MCPBackend { method, params in
             try await offload {
-                try Session.open(socket: socket, noLaunch: noLaunch, environment: environment).call(method, params)
+                try Session.open(
+                    socket: socket, viaApp: viaApp, direct: direct, noLaunch: noLaunch, client: ControlClientKind.mcp, environment: environment
+                ).call(method, params)
             }
         }
     }

@@ -1,31 +1,56 @@
 import CherryControl
 import CherryCore
-import CherryFeatures
+import CherryPresentation
 import Foundation
 
 /// 控制协议（CLI / MCP）的请求处理：交给 `KeyboardAutomation`，与快捷指令同一套选键盘、校验和写入规则，文案也相同。
 /// 线上数值用界面单位（配置档 1 起、速度 1…5），这里换算成 Core 的 0 起编号。不提供任何固件操作。
+///
+/// App 进程里它处理 socket 上的请求；命令行在 App 没运行时直连键盘，同一个类型在命令行进程内处理同样的请求。
+/// 两处都先经 `AutomationEntries` 核对入口开关（`ping` / `version` 除外），处理完记下这次调用。
 public struct ControlService: Sendable {
     private let automation: KeyboardAutomation
+    private let entries: AutomationEntries?
     private let version: ControlVersion
 
-    public init(automation: KeyboardAutomation, appVersion: String, build: String) {
+    /// `entries` 为 nil 时不核对开关、不记录（只在测试里这样用）。
+    public init(automation: KeyboardAutomation, entries: AutomationEntries? = nil, appVersion: String, build: String) {
         self.automation = automation
+        self.entries = entries
         version = ControlVersion(app: appVersion, build: build)
     }
 
     public func handle(_ request: ControlRequest, reply: @escaping @Sendable (ControlResponse) -> Void) async {
         await DiagnosticOrigin.$current.withValue(.automation) {
+            let entry = Self.entry(request.client)
+            let tracked = ![.ping, .version].contains(request.method)
+            // 先记录再回复：调用方拿到响应时，这次调用已经在共享记录里。
+            if tracked, let entries {
+                do { try entries.authorize(entry) } catch {
+                    entries.record(entry, operation: request.method.rawValue, succeeded: false)
+                    reply(.failure(request.id, ControlFailure(error)))
+                    return
+                }
+            }
             if request.method == .watch {
-                await watch(request.id, reply: reply)
+                entries?.record(entry, operation: request.method.rawValue, succeeded: true)
+                await watch(request.id, entry: entry, reply: reply)
                 return
             }
+            let response: ControlResponse
             do {
-                reply(.success(request.id, try await result(for: request)))
+                response = .success(request.id, try await result(for: request))
             } catch {
-                reply(.failure(request.id, ControlFailure(error)))
+                response = .failure(request.id, ControlFailure(error))
             }
+            if tracked { entries?.record(entry, operation: request.method.rawValue, succeeded: response.ok) }
+            reply(response)
         }
+    }
+
+    /// 线上的 `client` 映射为入口；没有或不认识时按命令行处理（旧版 cherry 不带这个字段）。
+    static func entry(_ client: String?) -> AutomationEntry {
+        client == ControlClientKind.mcp ? .mcp : .commandLine
     }
 
     func result(for request: ControlRequest) async throws -> ControlResult {
@@ -66,11 +91,18 @@ public struct ControlService: Sendable {
     }
 
     /// 先订阅再确认，确认之后的写入都不会漏掉；连接关闭时 worker 被取消，循环随之结束。
-    private func watch(_ id: Int, reply: @escaping @Sendable (ControlResponse) -> Void) async {
+    /// 每个事件前重新核对开关：用户在设置里关掉这个入口后，回一条失败并结束。
+    private func watch(_ id: Int, entry: AutomationEntry, reply: @escaping @Sendable (ControlResponse) -> Void) async {
         let changes = automation.changes()
         reply(.success(id, ControlResult(message: "开始监听快捷指令、命令行等自动化入口写入的配置")))
         for await external in changes {
             guard !Task.isCancelled else { break }
+            if let entries {
+                do { try entries.authorize(entry) } catch {
+                    reply(.failure(id, ControlFailure(error)))
+                    break
+                }
+            }
             reply(.success(id, ControlResult(change: ControlChange(external))))
         }
     }

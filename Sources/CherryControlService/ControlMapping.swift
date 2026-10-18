@@ -1,6 +1,6 @@
 import CherryControl
 import CherryCore
-import CherryFeatures
+import CherryPresentation
 import Foundation
 
 // 领域类型 → 线上类型。型号不支持的字段留空，CLI 与 MCP 客户端据此判断能力。
@@ -103,6 +103,7 @@ extension ControlFailure {
             case .presetIncompatible: code = "presetIncompatible"
             case .nothingToChange: code = "nothingToChange"
             case .firmwareUpdateInProgress: code = "firmwareUpdateInProgress"
+            case .entryDisabled: code = "automationDisabled"
             }
         case let device as CherryError:
             switch device {
@@ -114,6 +115,8 @@ extension ControlFailure {
             case .timeout: code = "timeout"
             case .unsupportedSetting: code = "unsupportedSetting"
             case .writeNotApplied: code = "writeNotApplied"
+            case .deviceBusy(.updatingFirmware): code = "firmwareUpdateInProgress"
+            case .deviceBusy(.inUse): code = "deviceBusy"
             default: code = "deviceError"
             }
         default:

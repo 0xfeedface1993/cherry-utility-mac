@@ -5,10 +5,13 @@ import PackageDescription
 //   CherryCore      – domain, protocol codecs, ports, application services (no UI, no IOKit, no TCA)
 //   CherryAdapters  – driven adapters: IOKit HID, URLSession catalog, on-disk firmware cache
 //   CherrySimulation – in-memory stand-ins for the driven adapters (UI tests, demo mode, profiling)
+//   CherryPresentation – Chinese text for errors, lighting values and automation results (Foundation only), shared by
+//                     the UI, App Intents, the control service and the CLI
 //   CherryFeatures  – driving adapter: TCA reducers + SwiftUI views, talking to the core through dependency clients
 //   CherryControl   – local control protocol (Unix socket, line-delimited JSON): client + socket server, Foundation only
 //   CherryControlService – driving adapter: maps control requests to KeyboardAutomation inside the app process
-//   CherryCLI       – the `cherry` command, a thin client of the running app; `cherry mcp` is its MCP server (swift-sdk, CLI only)
+//   CherryCLI       – the `cherry` command and `cherry mcp` (swift-sdk, CLI only): goes through the running app, or assembles
+//                     the core itself and connects to the keyboard directly when no app answers
 // The app target is the composition root that wires adapters into the feature clients.
 let package = Package(
     name: "CherryKit",
@@ -16,6 +19,7 @@ let package = Package(
     products: [
         .library(name: "CherryCore", targets: ["CherryCore"]),
         .library(name: "CherryAdapters", targets: ["CherryAdapters"]),
+        .library(name: "CherryPresentation", targets: ["CherryPresentation"]),
         .library(name: "CherryFeatures", targets: ["CherryFeatures"]),
         .library(name: "CherrySimulation", targets: ["CherrySimulation"]),
         .executable(name: "CherryProfiler", targets: ["CherryProfiler"]),
@@ -41,18 +45,20 @@ let package = Package(
             dependencies: ["CherryCore"],
             linkerSettings: [.linkedFramework("IOKit")]
         ),
+        .target(name: "CherryPresentation", dependencies: ["CherryCore"]),
         .target(
             name: "CherryFeatures",
             dependencies: [
                 "CherryCore",
+                "CherryPresentation",
                 .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
             ]
         ),
         .testTarget(name: "CherryCoreTests", dependencies: ["CherryCore"]),
         .target(name: "CherryControl"),
-        .target(name: "CherryControlService", dependencies: ["CherryCore", "CherryControl", "CherryFeatures"]),
+        .target(name: "CherryControlService", dependencies: ["CherryCore", "CherryControl", "CherryPresentation"]),
         .executableTarget(name: "CherryCLI", dependencies: [
-            "CherryControl",
+            "CherryControl", "CherryControlService", "CherryCore", "CherryAdapters", "CherrySimulation",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
             .product(name: "MCP", package: "swift-sdk"),
             .product(name: "Logging", package: "swift-log"),
@@ -73,6 +79,7 @@ let package = Package(
             name: "CherryFeaturesTests",
             dependencies: [
                 "CherryFeatures",
+                "CherryPresentation",
                 .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
             ]
         ),

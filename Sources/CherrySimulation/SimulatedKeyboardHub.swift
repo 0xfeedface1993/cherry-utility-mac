@@ -30,6 +30,9 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
         public var replyDelay: Duration = .zero
         /// Extra delay before each OTA reply (0xFFEF), so a flash lasts long enough to act on it while it runs.
         public var otaReplyDelay: Duration = .zero
+        /// File holding the configuration space, shared by every process that simulates the same keyboard (the app and
+        /// `cherry` connected directly, set with `CHERRY_SIMULATION_STATE`), so they see each other's writes.
+        public var sharedState: URL?
 
         public init() {}
 
@@ -129,11 +132,18 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
         } else { secondary = nil }
         self.scenario = scenario
         self.diagnostics = diagnostics
+        var config = Self.capturedConfigurationSpace(for: scenario.model)
+        if let shared = scenario.sharedState {
+            SharedConfiguration.withLock(shared) {
+                if let stored = SharedConfiguration.load(shared), stored.count == config.count { config = stored }
+                else { SharedConfiguration.store(config, shared) }
+            }
+        }
         state = Mutex(State(device: Device(
             attached: scenario.device != .none,
             releaseNumber: scenario.firmwareVersion,
             crc: scenario.firmwareCRC,
-            config: Self.capturedConfigurationSpace(for: scenario.model),
+            config: config,
             battery: scenario.batteryPercent,
             charging: scenario.charging
         )))
@@ -333,12 +343,30 @@ public final class SimulatedKeyboardHub: KeyboardDiscoveryPort, ReportChannelPro
     }
 
     private func vendorReply(_ r: [UInt8]) -> [UInt8] {
-        let command = r[3], length = Int(r[4]), offset = Int(r[5]) | Int(r[6]) << 8
+        let command = r[3]
         var reply = Array(r.prefix(8)) + [UInt8](repeating: 0, count: 56)
         guard Checksums.vendorSum(r[3...]) == UInt16(r[1]) | UInt16(r[2]) << 8 else {
             reply[7] = 0xFE
             return reply
         }
+        let accessesConfig = command == VendorCommand.readConfig.rawValue || command == VendorCommand.writeConfig.rawValue
+        guard accessesConfig, let shared = scenario.sharedState else { return vendorReply(r, into: reply) }
+        // Read-modify-write against the shared file, atomic with respect to the other process.
+        return SharedConfiguration.withLock(shared) {
+            if let stored = SharedConfiguration.load(shared) {
+                state.withLock { if stored.count == $0.device.config.count { $0.device.config = stored } }
+            }
+            let answer = vendorReply(r, into: reply)
+            if command == VendorCommand.writeConfig.rawValue {
+                SharedConfiguration.store(state.withLock { $0.device.config }, shared)
+            }
+            return answer
+        }
+    }
+
+    private func vendorReply(_ r: [UInt8], into reply: [UInt8]) -> [UInt8] {
+        let command = r[3], length = Int(r[4]), offset = Int(r[5]) | Int(r[6]) << 8
+        var reply = reply
         state.withLock { s in
             switch command {
             case VendorCommand.beginConfig.rawValue, VendorCommand.endConfig.rawValue:

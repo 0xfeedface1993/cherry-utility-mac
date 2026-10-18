@@ -1,3 +1,5 @@
+import AppKit
+import CherryCore
 import ComposableArchitecture
 import SwiftUI
 
@@ -16,6 +18,9 @@ public struct SettingsView: View {
             UpdateSettings(store: store)
                 .tabItem { Label(SettingsFeature.Tab.updates.rawValue, systemImage: "arrow.down.circle") }
                 .tag(SettingsFeature.Tab.updates)
+            AutomationSettings(store: store)
+                .tabItem { Label(SettingsFeature.Tab.automation.rawValue, systemImage: "terminal") }
+                .tag(SettingsFeature.Tab.automation)
             LabsSettings(store: store)
                 .tabItem { Label(SettingsFeature.Tab.labs.rawValue, systemImage: "flask") }
                 .tag(SettingsFeature.Tab.labs)
@@ -112,6 +117,119 @@ private struct UpdateSettings: View {
     }
 }
 
+/// 命令行、MCP 与快捷指令三个自动化入口：开关、状态与安装 / 注册。
+private struct AutomationSettings: View {
+    @Bindable var store: StoreOf<SettingsFeature>
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Form {
+            if let snapshot = store.automation {
+                commandLine(snapshot)
+                mcp(snapshot)
+            }
+            Section("快捷指令与 Spotlight") {
+                Text("10 个动作在快捷指令编辑器右侧的「App › CHERRY Utility」里（App 要装在「应用程序」文件夹里才会出现），用中文搜索「键盘」「配置档」「灯效」也能找到；Spotlight 里可以直接输入「切换配置档」等短语运行。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("打开快捷指令") { openURL(URL(string: "shortcuts://")!) }
+                    .accessibilityIdentifier("settings.automation.openShortcuts")
+            }
+            if let notice = store.automationNotice {
+                Section {
+                    Label(notice.text, systemImage: notice.isError ? "exclamationmark.triangle" : "checkmark.circle")
+                        .foregroundStyle(notice.isError ? Theme.warning : .secondary)
+                        .accessibilityIdentifier("settings.automation.notice")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(height: 600)
+    }
+
+    @ViewBuilder
+    private func commandLine(_ snapshot: AutomationEntriesSnapshot) -> some View {
+        Section("命令行 cherry") {
+            Toggle(isOn: enabled(.commandLine, snapshot)) {
+                Text("允许命令行控制")
+                Text("终端和脚本里的 cherry 命令。CHERRY Utility 没在运行时，cherry 直接连接键盘，需要在「隐私与安全性 › 输入监控」里允许终端")
+            }
+            .accessibilityIdentifier("settings.automation.commandLine")
+            HStack(alignment: .firstTextBaseline) {
+                Text("cherry 命令")
+                Spacer()
+                Text(snapshot.commandLineToolText)
+                    .multilineTextAlignment(.trailing)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("settings.automation.commandLine.tool")
+            }
+            HStack {
+                Button("安装到 /usr/local/bin…") { store.send(.installCommandLineToolTapped) }
+                    .disabled(!snapshot.canInstallCommandLineTool || store.isPerformingAutomationSetup)
+                    .accessibilityIdentifier("settings.automation.commandLine.install")
+                Button("移除") { store.send(.uninstallCommandLineToolTapped) }
+                    .disabled(!snapshot.canUninstallCommandLineTool || store.isPerformingAutomationSetup)
+                    .accessibilityIdentifier("settings.automation.commandLine.uninstall")
+            }
+            Text(snapshot.activityText(.commandLine))
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("settings.automation.commandLine.activity")
+            Text(snapshot.endpointText)
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("settings.automation.endpoint")
+        }
+    }
+
+    @ViewBuilder
+    private func mcp(_ snapshot: AutomationEntriesSnapshot) -> some View {
+        Section("MCP（Claude 等 AI 客户端）") {
+            Toggle(isOn: enabled(.mcp, snapshot)) {
+                Text("允许 MCP 控制")
+                Text("AI 客户端通过 cherry mcp 读取和设置键盘")
+            }
+            .accessibilityIdentifier("settings.automation.mcp")
+            Text(snapshot.activityText(.mcp))
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("settings.automation.mcp.activity")
+            HStack {
+                Text("Claude Desktop")
+                Spacer()
+                Text(snapshot.registrationText(.claudeDesktop))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("settings.automation.claudeDesktop")
+                Button("添加") { store.send(.registerMCPTapped(.claudeDesktop)) }
+                    .disabled(!snapshot.canRegister(.claudeDesktop) || store.isPerformingAutomationSetup)
+                    .accessibilityIdentifier("settings.automation.claudeDesktop.add")
+            }
+            HStack {
+                Text("Claude Code")
+                Spacer()
+                Text(snapshot.registrationText(.claudeCode))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("settings.automation.claudeCode")
+                Button("复制注册命令") { copy(snapshot.claudeCodeCommand, as: "注册命令") }
+                    .disabled(snapshot.claudeCodeCommand == nil)
+                    .accessibilityIdentifier("settings.automation.claudeCode.copy")
+            }
+            Button("复制 JSON 配置（其他 MCP 客户端）") { copy(snapshot.mcpConfigurationJSON, as: "JSON 配置") }
+                .disabled(snapshot.mcpConfigurationJSON == nil)
+                .accessibilityIdentifier("settings.automation.mcp.copyJSON")
+        }
+    }
+
+    private func enabled(_ entry: AutomationEntry, _ snapshot: AutomationEntriesSnapshot) -> Binding<Bool> {
+        Binding(get: { snapshot.enabled[entry] ?? true }, set: { store.send(.automationEntryToggled(entry, $0)) })
+    }
+
+    private func copy(_ text: String?, as what: String) {
+        guard let text else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        store.send(.automationCopied(what))
+    }
+}
+
 private struct LabsSettings: View {
     @Bindable var store: StoreOf<SettingsFeature>
 
@@ -184,5 +302,6 @@ private struct CustomFirmwareRiskSheet: View {
     } withDependencies: {
         $0.appUpdateClient = .previewValue
         $0.loginItemClient = .previewValue
+        $0.automationEntriesClient = .previewValue
     })
 }

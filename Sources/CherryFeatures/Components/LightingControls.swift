@@ -1,5 +1,6 @@
 import AppKit
 import CherryCore
+import CherryPresentation
 import SwiftUI
 
 // Pure components shared by the configuration screen and the menu-bar panel: value inputs + callbacks only.
@@ -17,32 +18,6 @@ extension LEDColor {
     static let palette: [LEDColor] = [
         "FF0000", "FF7200", "FFF005", "00D70F", "0099FF", "3153FF", "5E01D2", "EE00F1", "FF008A", "FFFFFF",
     ].compactMap { LEDColor(hex: $0) }
-}
-
-enum LightingText {
-    static let brightness = ["灭", "低", "中", "高", "全亮"]
-
-    static func brightness(_ v: Int) -> String {
-        brightness.indices.contains(v) ? brightness[v] : "\(v)"
-    }
-
-    static func speed(_ v: Int) -> String { "\(v + 1) / 5" }
-
-    static func sleep(seconds: Int) -> String { seconds == 0 ? "不休眠" : "\(seconds) 秒" }
-
-    static func deepSleep(minutes: Int) -> String { minutes == 0 ? "不休眠" : "\(minutes) 分钟" }
-
-    /// Raw polling indices: the PIXIU 75 stores 0 here and the driver's index→Hz table is not confirmed for it.
-    static func polling(_ p: ProfileConfig) -> String {
-        "有线 \(p.wiredPollingIndex) · 无线 \(p.wirelessPollingIndex)（原始值，对应频率未确认）"
-    }
-}
-
-extension KeyboardModel {
-    /// 灯效显示名；不在型号灯效表里的值显示原始编号。
-    func effectName(_ rawValue: UInt8) -> String {
-        effect(rawValue)?.name ?? String(format: "效果 0x%02X", rawValue)
-    }
 }
 
 extension LightingEffect {

@@ -22,15 +22,18 @@ public struct KeyboardAutomation: Sendable {
 
     public typealias Snapshot = @Sendable (KeyboardSummary) async throws -> VendorSnapshot
     public typealias Battery = @Sendable (KeyboardSummary) async throws -> BatteryStatus
+    public typealias Read = @Sendable (KeyboardSummary) async throws -> KeyboardConfiguration
     public typealias Apply = @Sendable (ConfigurationIntent, KeyboardSummary) async throws -> KeyboardConfiguration
     public typealias Presets = @Sendable () async throws -> [ProfilePreset]
 
     private let discovery: any KeyboardDiscoveryPort
     private let snapshot: Snapshot
     private let readBattery: Battery
+    private let read: Read
     private let apply: Apply
     private let loadPresets: Presets
     private let feed: ConfigurationChangeFeed
+    private let signals: any CrossProcessSignalPort
     private let activity: FirmwareActivity?
     private let timing: Timing
     private let clock: any Clock<Duration>
@@ -38,16 +41,19 @@ public struct KeyboardAutomation: Sendable {
     private let discoveryState = DiscoveryState()
 
     public init(
-        discovery: any KeyboardDiscoveryPort, snapshot: @escaping Snapshot, battery: @escaping Battery, apply: @escaping Apply,
-        presets: @escaping Presets, feed: ConfigurationChangeFeed = .init(), activity: FirmwareActivity? = nil,
+        discovery: any KeyboardDiscoveryPort, snapshot: @escaping Snapshot, battery: @escaping Battery, configuration: @escaping Read,
+        apply: @escaping Apply, presets: @escaping Presets, feed: ConfigurationChangeFeed = .init(),
+        signals: any CrossProcessSignalPort = ProcessLocalSignals(), activity: FirmwareActivity? = nil,
         sightings: KeyboardSightings = .init(), timing: Timing = .init(), clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.discovery = discovery
         self.snapshot = snapshot
         readBattery = battery
+        read = configuration
         self.apply = apply
         loadPresets = presets
         self.feed = feed
+        self.signals = signals
         self.activity = activity
         self.sightings = sightings
         self.timing = timing
@@ -113,9 +119,24 @@ public struct KeyboardAutomation: Sendable {
         try await loadPresets()
     }
 
-    /// Configurations written by automation and read back, for every subscriber.
+    /// Configurations written by automation and read back, for every subscriber. Writes made through another process
+    /// (the app or a `cherry` command connected directly) arrive here while `relayChangesFromOtherProcesses()` runs.
     public func changes() -> AsyncStream<ExternalConfigurationChange> {
         feed.changes()
+    }
+
+    /// 另一个进程经自动化入口写入后，这里读一次在线可配置键盘的配置，作为外部变更推给本进程的订阅者。
+    /// 由组合根在受监管的 Task 里运行，直到被取消；信号不带内容，所以读所有在线的可配置键盘（通常只有一把）。
+    public func relayChangesFromOtherProcesses() async {
+        for await _ in signals.signals(.configurationChanged) {
+            guard !Task.isCancelled else { return }
+            let keyboards = (try? await keyboards()) ?? []
+            for keyboard in keyboards where keyboard.canConfigure && activity?.isBusy(keyboard.id) != true {
+                guard !Task.isCancelled else { return }
+                guard let configuration = try? await read(keyboard) else { continue }
+                feed.publish(ExternalConfigurationChange(keyboardID: keyboard.id, change: .configuration(configuration)))
+            }
+        }
     }
 
     // MARK: - Writing
@@ -237,6 +258,7 @@ public struct KeyboardAutomation: Sendable {
     ) async throws -> AutomationResult {
         let saved = try await apply(intent, keyboard)
         feed.publish(ExternalConfigurationChange(keyboardID: keyboard.id, change: .configuration(saved)))
+        signals.post(.configurationChanged)
         return AutomationResult(keyboard: keyboard, model: model, configuration: saved, profile: profile ?? saved.activeProfile)
     }
 

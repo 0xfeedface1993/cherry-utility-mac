@@ -4,7 +4,7 @@ import Foundation
 // 自动化入口（快捷指令、Spotlight，之后的 CLI / MCP）的中文文案。用语与菜单栏一致：「配置 n」「亮度 全亮」。
 
 extension AutomationError: UserFacingError {
-    var message: String {
+    public var message: String {
         switch self {
         case .noKeyboard:
             "没有连接受支持的 CHERRY 键盘"
@@ -30,6 +30,8 @@ extension AutomationError: UserFacingError {
             "没有需要修改的设置"
         case .firmwareUpdateInProgress:
             "这把键盘正在升级固件，请完成后再试"
+        case .entryDisabled(let entry):
+            "\(AutomationText.name(of: entry))控制已在 CHERRY Utility 的「设置 › 自动化」里关闭"
         }
     }
 }
@@ -111,7 +113,7 @@ public enum AutomationText {
         return "已把预设「\(name)」载入\(profile(result.profile))（\(lighting(settings, model: result.model))）"
     }
 
-    static func unsupported(_ field: ProfileField, model: KeyboardModel) -> String {
+    public static func unsupported(_ field: ProfileField, model: KeyboardModel) -> String {
         switch field {
         case .effect, .brightness, .speed:
             model.hasLighting ? "\(model.name) 不支持修改\(name(of: field))" : "\(model.name) 没有背光，不能设置\(name(of: field))"
@@ -122,7 +124,7 @@ public enum AutomationText {
         }
     }
 
-    static func outOfRange(_ field: ProfileField, _ value: Int) -> String {
+    public static func outOfRange(_ field: ProfileField, _ value: Int) -> String {
         switch field {
         case .brightness: "亮度须为 0–4（灭到全亮），收到 \(value)"
         case .speed: "速度须为 1–5，收到 \(value + 1)"
@@ -132,7 +134,7 @@ public enum AutomationText {
         }
     }
 
-    static func name(of field: ProfileField) -> String {
+    public static func name(of field: ProfileField) -> String {
         switch field {
         case .effect: "灯效"
         case .brightness: "亮度"
@@ -140,6 +142,20 @@ public enum AutomationText {
         case .randomColor, .color: "颜色"
         case .sleepSeconds: "休眠时间"
         case .deepSleepMinutes: "深度休眠"
+        }
+    }
+
+    public static func name(of entry: AutomationEntry) -> String {
+        switch entry {
+        case .commandLine: "命令行"
+        case .mcp: "MCP "
+        }
+    }
+
+    public static func name(of client: MCPClient) -> String {
+        switch client {
+        case .claudeDesktop: "Claude Desktop"
+        case .claudeCode: "Claude Code"
         }
     }
 }

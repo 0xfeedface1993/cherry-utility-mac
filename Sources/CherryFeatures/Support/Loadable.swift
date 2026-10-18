@@ -1,3 +1,4 @@
+import CherryPresentation
 import Foundation
 
 public enum Loadable<Value: Equatable>: Equatable {

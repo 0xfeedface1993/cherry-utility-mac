@@ -18,6 +18,8 @@ public enum AutomationError: Error, Equatable, Sendable {
     case nothingToChange
     /// 这把键盘正在刷写固件；刷写期间不接受配置写入。
     case firmwareUpdateInProgress
+    /// 用户在 App 的「设置 › 自动化」里关闭了这个入口。
+    case entryDisabled(AutomationEntry)
 }
 
 /// 一次设置请求：只写出现的字段，其余保持键盘上的值。数值用 Core 单位（亮度、速度 0…4）。

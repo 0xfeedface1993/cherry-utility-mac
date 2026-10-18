@@ -153,6 +153,63 @@ struct ControlServiceTests {
         #expect(await Self.call(s.service, .keyboards).result?.keyboards?.count == 2)
     }
 
+    /// 「设置 › 自动化」的开关：被关掉的入口拒绝（ping / version 除外），另一个入口照常；每次调用都记下来。
+    @Test func entrySwitchesGateRequestsAndCallsAreRecorded() async throws {
+        let s = Self.stack()
+        let preferences = InMemoryAutomationPreferences()
+        let activity = InMemoryAutomationActivity()
+        let entries = AutomationEntries(
+            preferences: preferences, activity: activity, signals: ProcessLocalSignals(),
+            installer: NoCommandLineToolInstaller(), registry: NoMCPClientRegistry(), route: .viaApp
+        )
+        let service = ControlService(automation: s.automation, entries: entries, appVersion: "1.2.0", build: "4")
+        func call(_ method: ControlMethod, _ client: String?) async -> ControlResponse {
+            let responses = Mutex<[ControlResponse]>([])
+            await service.handle(ControlRequest(id: 1, method: method, client: client)) { response in responses.withLock { $0.append(response) } }
+            return responses.withLock { $0[0] }
+        }
+        preferences.setEnabled(.mcp, false)
+        let refused = await call(.status, ControlClientKind.mcp)
+        #expect(refused.ok == false && refused.error?.code == "automationDisabled")
+        #expect(refused.error?.message == "MCP 控制已在 CHERRY Utility 的「设置 › 自动化」里关闭")
+        #expect(await call(.ping, ControlClientKind.mcp).ok)
+        #expect(await call(.version, ControlClientKind.mcp).ok)
+        #expect(await call(.status, ControlClientKind.commandLine).ok)
+        #expect(await call(.status, nil).ok, "旧版 cherry 不带来源，按命令行处理")
+        preferences.setEnabled(.commandLine, false)
+        #expect(await call(.keyboards, nil).error?.message == "命令行控制已在 CHERRY Utility 的「设置 › 自动化」里关闭")
+
+        let recorded = activity.load()
+        #expect(recorded.mcp.count == 1 && recorded.mcp.lastCall?.succeeded == false && recorded.mcp.lastCall?.operation == "status")
+        #expect(recorded.commandLine.count == 3 && recorded.commandLine.lastCall?.operation == "keyboards")
+        #expect(recorded.commandLine.lastCall?.route == .viaApp)
+    }
+
+    /// 监听中途关掉入口：下一个事件前回一条失败并结束。
+    @Test func watchEndsWhenItsEntryIsSwitchedOff() async throws {
+        let s = Self.stack()
+        let preferences = InMemoryAutomationPreferences()
+        let entries = AutomationEntries(
+            preferences: preferences, activity: InMemoryAutomationActivity(), signals: ProcessLocalSignals(),
+            installer: NoCommandLineToolInstaller(), registry: NoMCPClientRegistry(), route: .viaApp
+        )
+        let service = ControlService(automation: s.automation, entries: entries, appVersion: "1.2.0", build: "4")
+        let (events, continuation) = AsyncStream.makeStream(of: ControlResponse.self)
+        let watcher = Task {
+            await service.handle(ControlRequest(id: 9, method: .watch, client: ControlClientKind.mcp)) { continuation.yield($0) }
+            continuation.finish()
+        }
+        var iterator = events.makeAsyncIterator()
+        #expect(await iterator.next()?.result?.message?.hasPrefix("开始监听") == true)
+        _ = try await s.automation.activate(profile: 0, on: nil)
+        #expect(await iterator.next()?.result?.change != nil)
+        preferences.setEnabled(.mcp, false)
+        _ = try await s.automation.activate(profile: 1, on: nil)
+        #expect(await iterator.next()?.error?.code == "automationDisabled")
+        #expect(await iterator.next() == nil)
+        await watcher.value
+    }
+
     @Test func watchStreamsAutomationWritesUntilCancelled() async throws {
         let s = Self.stack()
         let (events, continuation) = AsyncStream.makeStream(of: ControlResponse.self)

@@ -1,11 +1,12 @@
 import CherryCore
+import CherryPresentation
 import ComposableArchitecture
 import Foundation
 
 // User-facing text and view models of the custom-firmware page. The core only has typed values.
 
 extension CustomFirmwareError: UserFacingError {
-    var message: String {
+    public var message: String {
         switch self {
         case .invalidDefinition(let source, let issues):
             let listed = issues.prefix(3).map(\.message).joined(separator: "；")

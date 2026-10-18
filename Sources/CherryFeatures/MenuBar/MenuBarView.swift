@@ -15,14 +15,16 @@ public struct MenuBarLabel: View {
     public var body: some View {
         HStack(spacing: 3) {
             // Template images from the app's asset catalog (Design/icons/MenuBarKeycap*.svg): filled = connected.
-            Image(store.keyboard == nil ? "MenuBarKeycapDisconnected" : "MenuBarKeycap", bundle: .main)
-            if let text = store.labelText {
+            // 只读 `label` 与电量开关，其他状态变化不会触发菜单栏图标重绘（见 MenuBarFeature.State.label）。
+            let label = store.label
+            Image(label.isConnected ? "MenuBarKeycap" : "MenuBarKeycapDisconnected", bundle: .main)
+            if store.showsBatteryInLabel, let text = label.batteryText {
                 Text(text).monospacedDigit()
             }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("CHERRY Utility")
-        .accessibilityValue(store.labelAccessibilityValue)
+        .accessibilityValue(store.label.accessibilityValue)
         .accessibilityIdentifier("menubar.label")
     }
 }

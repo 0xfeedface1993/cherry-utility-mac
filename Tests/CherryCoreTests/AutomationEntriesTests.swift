@@ -56,7 +56,7 @@ final class MemoryPreferences: AutomationPreferencesPort, Sendable {
 final class MemoryActivity: AutomationActivityStore, Sendable {
     private let value = Mutex(AutomationActivity())
     func load() -> AutomationActivity { value.withLock { $0 } }
-    func record(_ call: AutomationCall) throws { value.withLock { $0 = $0.recording(call) } }
+    func record(_ call: AutomationCall) throws -> AutomationActivity { value.withLock { $0 = $0.recording(call); return $0 } }
 }
 
 struct FakeInstaller: CommandLineToolInstallerPort {

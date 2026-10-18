@@ -6,7 +6,7 @@ import MCP
 import Synchronization
 
 /// `cherry mcp`：stdio 上的 MCP 服务，供 Claude Code、Claude Desktop 等 AI 客户端读取和设置键盘。
-/// 每次工具调用都经控制 socket 交给运行中的 App 执行（没运行时在后台启动它），与菜单栏、快捷指令、命令行共用同一个设备通道。
+/// 每次工具调用都按命令行的规则选路：App 在运行就经控制 socket 交给它执行，否则直接连接键盘。
 struct MCPCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mcp", abstract: "作为 MCP 服务运行（stdio），供 Claude Code / Claude Desktop 等 AI 客户端读取和设置键盘。",
@@ -21,7 +21,7 @@ struct MCPCommand: AsyncParsableCommand {
     func run() async throws {
         let backend = MCPBackend.routed(connection)
         let server = await CherryMCP.server(version: CherryMCP.version(), backend: backend)
-        let stdio = StdioTransport()
+        let stdio = MCPStdioTransport()
         try await server.start(transport: DrainingTransport(stdio, logger: stdio.logger))
         // 客户端关闭标准输入时消息循环结束；DrainingTransport 先等进行中的响应发出。
         await server.waitUntilCompleted()

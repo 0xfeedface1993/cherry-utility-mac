@@ -295,12 +295,17 @@ struct MenuBarFeatureTests {
             $0.keyboardClient.vendorSnapshot = { _ in .preview }
             $0.date.now = Date(timeIntervalSince1970: 10)
         }
-        await store.send(.keyboardsUpdated([.preview])) { $0.keyboards = [.preview]; $0.snapshotRevision += 1 }
+        await store.send(.keyboardsUpdated([.preview])) {
+            $0.keyboards = [.preview]
+            $0.snapshotRevision += 1
+            $0.label = .init(isConnected: true, batteryText: nil, accessibilityValue: "—")
+        }
         await store.receive(\.refresh) { $0.snapshot = .loading }
         await store.receive(\.snapshotLoaded) {
             $0.snapshot = .loaded(.preview)
             $0.snapshotID = KeyboardSummary.preview.id
             $0.lastUpdated = Date(timeIntervalSince1970: 10)
+            $0.label = .init(isConnected: true, batteryText: "95%", accessibilityValue: "95%")
         }
         #expect(store.state.labelText == "95%")
         #expect(store.state.lightingPresentation?.profiles.first(where: \.isActive)?.id == 1)

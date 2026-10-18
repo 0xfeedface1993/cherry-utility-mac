@@ -159,6 +159,54 @@ struct AutomationSharingTests {
         #expect(activity.mcp.count == 20 && activity.commandLine.count == 20)
         #expect(activity.mcp.lastCall?.route == .direct && activity.mcp.lastCall?.operation == "status")
     }
+
+    /// 原地重写时读者加共享锁：并发写入期间读到的累计次数只增不减，不会读到写了一半的文件（那会解码成空记录）。
+    @Test func readersNeverSeeAHalfWrittenRecord() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "CherryActivity-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "automation-activity.json")
+        _ = try FileAutomationActivityStore(file: file).record(AutomationCall(entry: .mcp, operation: "status", succeeded: true, route: .direct, date: Date()))
+        let regressions = Mutex(0)
+        DispatchQueue.concurrentPerform(iterations: 60) { index in
+            let store = FileAutomationActivityStore(file: file)
+            if index.isMultiple(of: 3) {
+                _ = try? store.record(AutomationCall(entry: .commandLine, operation: "update", succeeded: true, route: .viaApp, date: Date()))
+            } else {
+                var last = 0
+                for _ in 0..<20 {
+                    let seen = store.load().mcp.count + store.load().commandLine.count
+                    if seen < max(last, 1) { regressions.withLock { $0 += 1 } }
+                    last = max(last, seen)
+                }
+            }
+        }
+        #expect(regressions.withLock { $0 } == 0)
+        #expect(FileAutomationActivityStore(file: file).load().commandLine.count == 20)
+    }
+
+    /// 写入中途崩溃留下的坏文件按空记录读出；下一次记录照常写回有效的 JSON。
+    @Test func anUnreadableFileStartsOver() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "CherryActivity-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appending(path: "automation-activity.json")
+        try Data("{\"mcp\":{\"cou".utf8).write(to: file)
+        let store = FileAutomationActivityStore(file: file)
+        #expect(store.load() == AutomationActivity())
+        let written = try store.record(AutomationCall(entry: .mcp, operation: "status", succeeded: true, route: .direct, date: Date()))
+        #expect(written.mcp.count == 1 && store.load() == written)
+    }
+
+    /// 数据目录不存在时第一次记录把它建出来；返回的就是写进文件的记录，调用方不必再读一遍。
+    @Test func recordCreatesTheDirectoryAndReturnsWhatItWrote() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "CherryActivity-\(UUID().uuidString)/nested", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+        let store = FileAutomationActivityStore(file: directory.appending(path: "automation-activity.json"))
+        let first = try store.record(AutomationCall(entry: .mcp, operation: "status", succeeded: true, route: .viaApp, date: Date()))
+        let second = try store.record(AutomationCall(entry: .commandLine, operation: "update", succeeded: false, route: .direct, date: Date()))
+        #expect(first.mcp.count == 1 && second.mcp.count == 1 && second.commandLine.count == 1)
+        #expect(second == store.load())
+    }
 }
 
 @Suite("命令行工具安装")

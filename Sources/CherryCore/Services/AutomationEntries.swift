@@ -54,8 +54,8 @@ public final class AutomationEntries: Sendable {
 
     /// 记录失败（例如磁盘只读）不影响请求本身。
     public func record(_ entry: AutomationEntry, operation: String, succeeded: Bool) {
-        try? store.record(AutomationCall(entry: entry, operation: operation, succeeded: succeeded, route: route, date: now()))
-        let current = store.load()
+        let call = AutomationCall(entry: entry, operation: operation, succeeded: succeeded, route: route, date: now())
+        let current = (try? store.record(call)) ?? store.load()
         let targets = state.withLock { Array($0.subscribers.values) }
         for continuation in targets { continuation.yield(current) }
         signals.post(.automationActivityChanged)

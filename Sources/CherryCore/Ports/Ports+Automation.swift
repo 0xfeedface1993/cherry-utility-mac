@@ -71,8 +71,10 @@ public protocol AutomationPreferencesPort: Sendable {
 /// Activity record shared by the app and the command line.
 public protocol AutomationActivityStore: Sendable {
     func load() -> AutomationActivity
-    /// Adds `call` atomically with respect to other processes recording at the same time.
-    func record(_ call: AutomationCall) throws
+    /// Adds `call` atomically with respect to other processes recording at the same time, and returns the record as
+    /// written (so callers need not read it back).
+    @discardableResult
+    func record(_ call: AutomationCall) throws -> AutomationActivity
 }
 
 /// Puts the app's bundled `cherry` on the PATH.

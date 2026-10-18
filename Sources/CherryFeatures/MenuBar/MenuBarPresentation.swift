@@ -76,16 +76,19 @@ extension MenuBarFeature.State {
         )
     }
 
+    /// 按当前状态算出的图标内容；reducer 每个 action 之后据此更新 `label`。
+    var currentLabel: Label {
+        let battery = currentSnapshot?.battery.map { "\($0.percent)%" }
+        let spoken = battery ?? (keyboard == nil ? "未连接" : (model?.hasBattery == false ? "有线" : "—"))
+        return Label(isConnected: keyboard != nil, batteryText: battery, accessibilityValue: spoken)
+    }
+
     /// Text next to the status-item icon (hidden when turned off in Settings).
     var labelText: String? {
-        guard showsBatteryInLabel else { return nil }
-        return currentSnapshot?.battery.map { "\($0.percent)%" }
+        showsBatteryInLabel ? currentLabel.batteryText : nil
     }
 
     /// Spoken value of the status item; independent of whether the percentage is drawn.
-    var labelAccessibilityValue: String {
-        if let battery = currentSnapshot?.battery { return "\(battery.percent)%" }
-        return keyboard == nil ? "未连接" : (model?.hasBattery == false ? "有线" : "—")
-    }
+    var labelAccessibilityValue: String { currentLabel.accessibilityValue }
 }
 

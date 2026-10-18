@@ -27,6 +27,16 @@ public struct MenuBarFeature: Sendable {
         public var errorMessage: String?
         public var lastUpdated: Date?
         @Shared(.showBatteryInMenuBar) public var showsBatteryInLabel
+        /// 菜单栏图标显示的内容，由 reducer 在内容真的变了时才更新（见 `body` 的最后一步）。图标视图只读它和
+        /// `showsBatteryInLabel`：配置读回、写入进度等其他状态的变化不会让 NSStatusItem 重新布局、给各个菜单栏重拍快照。
+        public internal(set) var label = Label()
+
+        public struct Label: Equatable, Sendable {
+            public var isConnected = false
+            /// 电量百分比文字；没有电量时为 nil。是否画出来另看 `showsBatteryInLabel`。
+            public var batteryText: String?
+            public var accessibilityValue = "未连接"
+        }
 
         public init() {}
         public var keyboard: KeyboardSummary? { selectedID.flatMap { keyboards[id: $0] } ?? keyboards.first }
@@ -214,6 +224,12 @@ public struct MenuBarFeature: Sendable {
             case .openInputMonitoringTapped: return .run { _ in await accessClient.openAccessSettings() }
             case .delegate: return .none
             }
+        }
+        Reduce { state, _ in
+            // 赋相同的值也会通知观察者，所以先比较。
+            let label = state.currentLabel
+            if state.label != label { state.label = label }
+            return .none
         }
     }
 

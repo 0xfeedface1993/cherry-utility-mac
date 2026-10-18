@@ -62,8 +62,12 @@ public final class FileDeviceLock: DeviceLockPort {
             if purpose == .firmwareUpdate { writeMarker(Self.updateMarker, for: keyboard) }
             return .acquired
         }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let descriptor = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        var descriptor = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        if descriptor < 0, errno == ENOENT {
+            // 锁目录还不存在：只在第一次建，不在每次会话时都去 stat 一遍目录。
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            descriptor = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        }
         guard descriptor >= 0 else { throw CherryError.storage("无法打开设备锁 \(path)：\(String(cString: strerror(errno)))") }
         let result = held.withLock { table -> (Attempt, close: Bool) in
             if var entry = table[keyboard] {

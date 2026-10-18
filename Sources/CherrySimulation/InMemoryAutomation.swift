@@ -19,5 +19,7 @@ public final class InMemoryAutomationActivity: AutomationActivityStore, Sendable
     public init() {}
 
     public func load() -> AutomationActivity { value.withLock { $0 } }
-    public func record(_ call: AutomationCall) throws { value.withLock { $0 = $0.recording(call) } }
+    public func record(_ call: AutomationCall) throws -> AutomationActivity {
+        value.withLock { $0 = $0.recording(call); return $0 }
+    }
 }

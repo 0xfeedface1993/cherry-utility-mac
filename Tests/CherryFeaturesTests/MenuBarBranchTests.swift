@@ -12,6 +12,8 @@ struct MenuBarBranchTests {
         state.keyboards = [.preview]
         state.snapshot = .loaded(.preview)
         state.snapshotID = KeyboardSummary.preview.id
+        // 直接构造的状态没经过 reducer，图标内容按它补上，与运行中的状态一致。
+        state.label = state.currentLabel
         return state
     }
     static var second: KeyboardSummary {
@@ -214,5 +216,29 @@ struct MenuBarBranchTests {
         #expect(store.state.detail?.configuration.saveGeneration == 1)
         #expect(store.state.detail?.info.loadGeneration == 2)
         #expect(store.state.detail?.keyboard.configurationInterfaceIDs == [999])
+    }
+}
+
+/// 菜单栏图标只在显示的内容变化时更新：配置读回不改变 `label`，图标视图因此不会重绘（性能优化，2026-10-18）。
+@MainActor
+@Suite("菜单栏图标内容")
+struct MenuBarLabelTests {
+    @Test func configurationReadBackLeavesTheLabelAlone() async {
+        let store = TestStore(initialState: MenuBarBranchTests.loadedState()) { MenuBarFeature() }
+        store.exhaustivity = .off
+        let before = store.state.label
+        let configuration = try! KeyboardConfiguration(activeProfile: 2, profiles: VendorSnapshot.preview.configuration.profiles)
+        await store.send(.configurationSynchronized(KeyboardSummary.preview.id, .configuration(configuration)))
+        #expect(store.state.currentSnapshot?.configuration.activeProfile == 2, "读回已应用")
+        #expect(store.state.label == before, "图标内容没变，不应重新赋值")
+    }
+
+    @Test func labelFollowsConnectionAndBattery() async {
+        let store = TestStore(initialState: MenuBarBranchTests.loadedState()) { MenuBarFeature() }
+        store.exhaustivity = .off
+        #expect(store.state.label == .init(isConnected: true, batteryText: "95%", accessibilityValue: "95%"))
+        await store.send(.keyboardsUpdated([]))
+        #expect(store.state.label == .init(isConnected: false, batteryText: nil, accessibilityValue: "未连接"))
+        #expect(store.state.label == store.state.currentLabel)
     }
 }

@@ -37,7 +37,10 @@ final class MenuBarPerformanceUITests: CherryUITestCase {
             let began = Date().timeIntervalSince1970
             let panel = element("menubar.panel")
             let profile = index.isMultiple(of: 2) ? "1" : "2"
-            panel.radioGroups["menubar.profile"].radioButtons["配置 " + profile].click()
+            // 10-13 重设计前的基线 / 优化版产品按钮标题是「1」「2」，之后是「配置 1」「配置 2」；两种产品都要能驱动。
+            let buttons = panel.radioGroups["menubar.profile"].radioButtons
+            let current = buttons["配置 " + profile]
+            (current.exists ? current : buttons[profile]).click()
             waitForText("menubar.summary", contains: "配置 " + profile)
             actions.append(["action": "profile", "ordinal": index, "start_epoch": began, "end_epoch": Date().timeIntervalSince1970])
         }
@@ -48,7 +51,8 @@ final class MenuBarPerformanceUITests: CherryUITestCase {
         try write(["scenario": "menu-effects20-profiles4-v1", "start_epoch": start, "warm_end_epoch": warmEnd,
                    "end_epoch": Date().timeIntervalSince1970, "actions": actions, "verified": true],
                   to: output.appendingPathComponent("actions.json"))
-        try waitForFile(output.appendingPathComponent("profile.saved"), timeout: 60)
+        // 采集器等 trace 落盘后才放行（App 要活到那时）；接物理显示器录 Hitches 时保存要两分多钟，与采集器的 300 秒上限一致。
+        try waitForFile(output.appendingPathComponent("profile.saved"), timeout: 300)
     }
 
     func testMenuMemorySequence() throws {

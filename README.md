@@ -324,4 +324,4 @@ claude mcp add --scope user cherry -- /Applications/CherryUtility.app/Contents/M
 
 ## 菜单栏性能验证
 
-菜单 / 信息页共享已验证的配置读回，编辑页保留本地草稿；快速灯效意图只保留一个待执行项，固件目录由适配器缓存 5 分钟。自动化与指标见 [菜单栏性能优化与验证](Docs/菜单栏性能优化与验证.md)，可使用 `Scripts/run-menu-profile.py` / `run-menu-idle.py` 对指定 Release 产品复测。模拟 UI 三次对比 CPU 权重降低 46.8%；hitch 尚缺有效帧数据，不能将空表认作不卡顿。
+菜单 / 信息页共享已验证的配置读回，编辑页保留本地草稿；快速灯效意图只保留一个待执行项，固件目录由适配器缓存 5 分钟。自动化与指标见 [菜单栏性能优化与验证](Docs/菜单栏性能优化与验证.md)，可使用 `Scripts/run-menu-profile.py` / `run-menu-idle.py` 对指定 Release 产品复测。模拟 UI 三次对比 CPU 权重降低 46.8%。屏幕帧 hitch 需要物理显示器的 swap / vsync 事件（虚拟显示器上采不到），2026-10-19 接 144 Hz 显示器用 `Scripts/run-menu-frames.sh` 补测：优化让 >50 ms 的 hitch 由 3 次降到 1 次（中位数）、没有 ≥250 ms 交互 hang，但最长 hitch 仍有 48–215 ms。1.2.0 源码多出的大量单帧 hitch 来自「正在配置键盘…」提示改变面板高度，改为 overlay 后 hitch 减少 71%；偶发的 >50 ms 长帧两版都有，原因未明。

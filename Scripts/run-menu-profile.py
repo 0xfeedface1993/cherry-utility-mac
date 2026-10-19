@@ -3,6 +3,25 @@
 import argparse, datetime, hashlib, json, os, pathlib, plistlib, shutil, signal, subprocess, tempfile, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+# commits / frames 都不含 Time Profiler（Instruments 27.0 中它与 Core Animation Commits 同录会报 backtrace 类型错误并损坏 run）。
+# frames 另加 Hitches / Display：依赖物理显示器的 swap / vsync 事件，虚拟显示器上这些表为空，由分析脚本据此判定无效；
+# 它们的 GPUPlugin 在停止录制时偶发 SIGBUS，没有物理显示器时用 commits。
+RECORDINGS = {'swiftui': ['--template', 'SwiftUI'],
+              'commits': ['--instrument', 'Core Animation Commits', '--instrument', 'Hangs'],
+              'frames': ['--instrument', 'Core Animation Commits', '--instrument', 'Hangs', '--instrument', 'Hitches', '--instrument', 'Display']}
+
+def displays():
+    # 记录采集时的显示器；厂商 / 产品 ID 为 unkn / virt 的是虚拟显示器。
+    try: data=json.loads(subprocess.check_output(['system_profiler','SPDisplaysDataType','-json'],text=True))
+    except (subprocess.CalledProcessError, ValueError): return None
+    found=[]
+    for gpu in data.get('SPDisplaysDataType',[]):
+        for d in gpu.get('spdisplays_ndrvs',[]):
+            ascii=lambda h: bytes.fromhex(h).decode('ascii','replace') if h and len(h)==8 else h
+            found.append({'name':d.get('_name'),'vendor_id':d.get('_spdisplays_display-vendor-id'),'product_id':d.get('_spdisplays_display-product-id'),
+                          'vendor_ascii':ascii(d.get('_spdisplays_display-vendor-id')),'product_ascii':ascii(d.get('_spdisplays_display-product-id')),
+                          'resolution':d.get('_spdisplays_resolution'),'pixels':d.get('_spdisplays_pixels'),'main':d.get('spdisplays_main')=='spdisplays_yes'})
+    return found
 
 def wait_file(path, process, timeout):
     deadline = time.monotonic() + timeout
@@ -17,6 +36,7 @@ def main():
     parser.add_argument('--xctestrun', type=pathlib.Path, required=True)
     parser.add_argument('--output', type=pathlib.Path, required=True)
     parser.add_argument('--scenario',choices=['fixed','memory'],default='fixed')
+    parser.add_argument('--recording',choices=sorted(RECORDINGS),default='swiftui',help='fixed 场景的 xctrace 配置')
     args = parser.parse_args()
     final_out=args.output.resolve(); final_out.mkdir(parents=True, exist_ok=False)
     # XCTest runner 对 Downloads 写入受 TCC 限制；握手和日志写入本次专属临时目录。
@@ -31,7 +51,8 @@ def main():
     binary=app/'Contents/MacOS/CherryUtility'
     identity={'source_app':str(source_app), 'app':str(app), 'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
               'uuid':subprocess.check_output(['dwarfdump','--uuid',str(binary)],text=True).strip(),
-              'scenario':'menu-effects20-profiles4-v1' if args.scenario=='fixed' else 'menu-memory20-v1', 'template':'SwiftUI' if args.scenario=='fixed' else 'RSS (no xctrace)',
+              'scenario':'menu-effects20-profiles4-v1' if args.scenario=='fixed' else 'menu-memory20-v1', 'template':(' '.join(RECORDINGS[args.recording]) if args.recording!='swiftui' else 'SwiftUI') if args.scenario=='fixed' else 'RSS (no xctrace)',
+              'recording':args.recording if args.scenario=='fixed' else None,'displays':displays(),
               'started_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     (out/'identity.json').write_text(json.dumps(identity,ensure_ascii=False,indent=2))
     env=os.environ.copy();env['TEST_RUNNER_CHERRY_PROFILE_APP']=str(app);env['TEST_RUNNER_CHERRY_PROFILE_OUTPUT']=str(out)
@@ -62,7 +83,7 @@ def main():
         pid=ready['pid']; identity['pid']=pid
         (out/'identity.json').write_text(json.dumps(identity,ensure_ascii=False,indent=2))
         if args.scenario=='fixed':
-            recorder=subprocess.Popen(['xcrun','xctrace','record','--template','SwiftUI',
+            recorder=subprocess.Popen(['xcrun','xctrace','record',*RECORDINGS[args.recording],
                 '--attach',str(pid),'--time-limit','180s','--output',str(out/'ui.trace')],stdout=trace_log,stderr=subprocess.STDOUT)
             deadline=time.monotonic()+45
             while 'Ctrl-C' not in (out/'xctrace.txt').read_text():
@@ -83,11 +104,11 @@ def main():
             time.sleep(.25)
         if recorder:
             recorder.send_signal(signal.SIGINT)
-        # UI 校验已完成；结束驱动，trace 独立完成后处理与落盘。
-        (out/'profile.saved').touch()
-        if recorder:
+            # 附加的目标 App 要活到 trace 落盘：测试收尾结束 App 时 xctrace 若仍在停止，会报「Target app exited」并偶发保存失败。
             code=recorder.wait(timeout=300)
             if code not in [0,54] or not (out/'ui.trace').exists(): raise RuntimeError(f'xctrace 保存失败：{code}')
+        # UI 校验已完成；放行驱动收尾。
+        (out/'profile.saved').touch()
         if driver.wait(timeout=45)!=0: raise RuntimeError('UI 场景断言失败，见 uitest.txt')
         status='completed'
     finally:

@@ -14,6 +14,9 @@ def table(directory,name):
     return root.findall('.//row'),lambda e:ids.get(e.get('ref'),e)
 
 def runloop_busy(rows,resolve,a,b):
+    return stats(runloop_busy_values(rows,resolve,a,b))
+
+def runloop_busy_values(rows,resolve,a,b):
     opens={};iterations=[];waits=[]
     for row in rows:
         c=[resolve(x) for x in row]
@@ -37,7 +40,7 @@ def runloop_busy(rows,resolve,a,b):
         while i<len(merged) and merged[i][0]<y:
             u,v=merged[i];waiting+=max(0,min(y,v)-max(x,u));i+=1
         values.append(max(0,y-x-waiting))
-    return stats(values)
+    return values
 
 def analyze(directory):
     assert json.loads((directory/'status.json').read_text())['status']=='completed'

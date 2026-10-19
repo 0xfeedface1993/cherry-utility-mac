@@ -80,6 +80,22 @@ struct ScreenRenderTests {
         try await renderView(view, appearance: appearance, name: "menubar-\(appearance == .aqua ? "light" : "dark")")
     }
 
+    /// 写入进行中：显示「正在配置键盘…」。与 `menubar-light` 同高，提示出现 / 消失不改变面板（菜单栏窗口）的尺寸。
+    @Test func menuBarPanelApplying() async throws {
+        var state = MenuBarFeature.State()
+        state.keyboards = [.preview]
+        state.snapshot = .loaded(.preview)
+        state.snapshotID = KeyboardSummary.preview.id
+        state.requests = [.init(id: UUID(), keyboardID: KeyboardSummary.preview.id, intent: .activate(0), sequence: 1)]
+        let store = Store(initialState: state) { MenuBarFeature() } withDependencies: {
+            configure(&$0, keyboards: [.preview])
+            $0.configurationClient = .previewValue
+            $0.presetClient = .previewValue
+        }
+        let view = MenuBarPanel(store: store, onOpenMainWindow: {}, onQuit: {})
+        try await renderView(view, appearance: .aqua, name: "menubar-applying-light")
+    }
+
     @Test func settings() async throws {
         for tab in SettingsFeature.Tab.allCases {
             var state = SettingsFeature.State()

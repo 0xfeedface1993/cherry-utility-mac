@@ -83,13 +83,19 @@ public struct MenuBarPanel: View {
                 } else if store.snapshot.isLoading {
                     ProgressView().frame(maxWidth: .infinity)
                 }
-                Label("正在配置键盘…", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .opacity(store.isApplying ? 1 : 0)
-                    .frame(height: store.isApplying ? nil : 0)
-                    .animation(.easeInOut(duration: 0.15), value: store.isApplying)
-                    .accessibilityHidden(!store.isApplying)
-                    .accessibilityIdentifier("menubar.configuring")
+                // 提示只占一个 0 高度的位置，画在它前后两段间距（共 24 pt）里：出现 / 消失不改变面板高度。
+                // 面板一变高，菜单栏窗口就要跟着改尺寸，每帧整窗重新布局、合成；淡入淡出也要逐帧重画面板。
+                // 每次写入开始、结束各一次，高刷新率显示器上会成串掉帧，所以提示直接出现 / 消失。
+                Color.clear
+                    .frame(height: 0)
+                    .overlay(alignment: .leading) {
+                        Label("正在配置键盘…", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize()
+                            .opacity(store.isApplying ? 1 : 0)
+                            .accessibilityHidden(!store.isApplying)
+                            .accessibilityIdentifier("menubar.configuring")
+                    }
                 if store.model != nil && store.keyboard?.canConfigure == false {
                     Label("配置接口已断开，重新连接 USB 后可操作", systemImage: "cable.connector.slash")
                         .font(.caption).foregroundStyle(.secondary)

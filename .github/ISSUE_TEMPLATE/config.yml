@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 官网与常见问题
+    url: https://odeployer.online/cherry-utility/#faq
+    about: 下载、更新与常见问题
+  - name: 使用文档
+    url: https://github.com/0xfeedface1993/cherry-utility-mac/blob/main/Docs/README.md
+    about: 快捷指令、命令行 cherry、MCP 与开发者文档

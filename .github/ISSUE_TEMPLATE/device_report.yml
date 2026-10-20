@@ -1,0 +1,41 @@
+name: 型号兼容反馈
+description: 告诉我们某个 CHERRY 型号在 Mac 上能不能用
+labels: ["device"]
+body:
+  - type: markdown
+    attributes:
+      value: 除 MX PIXIU 75 之外的型号都是按官方驱动的数据适配的，还没在真机上验证。你的反馈能帮其他用户。
+  - type: input
+    id: model
+    attributes:
+      label: 型号
+      placeholder: MX BOARD 3.0S RGB
+    validations:
+      required: true
+  - type: checkboxes
+    id: works
+    attributes:
+      label: 工作正常的功能
+      options:
+        - label: 识别键盘、显示设备信息
+        - label: 切换配置档
+        - label: 修改灯效 / 亮度 / 速度 / 颜色
+        - label: 电量显示
+        - label: 按键测试（键位图正确）
+        - label: 固件版本显示正确
+  - type: textarea
+    id: problems
+    attributes:
+      label: 不正常的地方
+      description: 例如某个灯效不对、某个键在键位图上的位置不对。
+  - type: textarea
+    id: output
+    attributes:
+      label: cherry 输出
+      description: 粘贴 `cherry keyboards` 与 `cherry status --json` 的输出（App 在运行时会经由 App 读取）。
+      render: json
+  - type: input
+    id: app-version
+    attributes:
+      label: App 版本与 macOS 版本
+      placeholder: 1.2.1 (5)，macOS 26.1

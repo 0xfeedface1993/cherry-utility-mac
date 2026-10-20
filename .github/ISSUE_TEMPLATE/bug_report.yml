@@ -1,0 +1,55 @@
+name: Bug 报告
+description: App、命令行或 MCP 的行为不符合预期
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 你做了什么、期望看到什么、实际看到什么。有错误提示请原样贴出。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开…
+        2. 点…
+  - type: dropdown
+    id: entry
+    attributes:
+      label: 入口
+      multiple: true
+      options:
+        - 主窗口
+        - 菜单栏
+        - 快捷指令 / Spotlight
+        - 命令行 cherry
+        - MCP（cherry mcp）
+        - 固件升级 / 自定义固件
+        - 安装与更新
+  - type: input
+    id: app-version
+    attributes:
+      label: App / cherry 版本
+      placeholder: 1.2.1 (5)；cherry doctor 的输出也可以
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS 版本与 Mac 机型
+      placeholder: macOS 26.1，MacBook Pro M3
+    validations:
+      required: true
+  - type: input
+    id: keyboard
+    attributes:
+      label: 键盘型号与连接方式
+      placeholder: MX PIXIU 75，USB 有线
+  - type: textarea
+    id: logs
+    attributes:
+      label: 诊断信息
+      description: 可以拖入菜单栏「诊断」导出的 .cherrydiag.zip（不含按键内容和个人路径），或粘贴 `cherry status --json` 的输出。

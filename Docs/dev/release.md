@@ -59,6 +59,10 @@
 
 `Packaging/homebrew/` 有两个相互独立的 cask 模板：`cherry-utility`（只装 App，`auto_updates true`）与 `cherry-cli`（只装命令行，livecheck 读 `releases/latest.json` 的 `cli` 段）。`release.sh` 按版本和 SHA-256 渲染到 `.release/<版本>-<build>/`。两者还没有提交到 homebrew-cask。
 
-## 历史
+## 发布配置
 
-每个版本的发布过程、遇到的问题与核对记录见 [公开发布与官网-进度](../records/公开发布与官网-进度.md)。
+- Bundle ID `online.odeployer.CherryUtility`，诊断日志的 subsystem 与偏好域也用它；命令行 `cherry` 的签名标识为 `online.odeployer.CherryUtility.cli`；预设文件 `.cherryprofile` 的 UTI 为 `online.odeployer.cherry-utility.profile`。
+- Release 为通用二进制（arm64 + x86_64），Developer ID 签名，开启 Hardened Runtime，经 notarytool 公证并 staple。App 不在沙盒里（IOKit HID 需要），所以 Sparkle 不需要 installer launcher service；`release.sh` 在签 App 之前用 Developer ID 加安全时间戳重签 Sparkle 的内嵌组件和 `cherry`。
+- Sparkle 使用 EdDSA 签名，公钥写在 Info.plist 的 `SUPublicEDKey`，更新源为 `https://odeployer.online/cherry-utility/appcast.xml`。签名证书、公证凭据（App Store Connect API key）与 Sparkle 私钥都放在仓库之外，由 `release.sh` 从本机的配置文件读取。
+- `CFBundleDevelopmentRegion` 为 zh-Hans，只有 zh-Hans 一种本地化：多加 en 会让英文系统上的 Sparkle 对话框和日期格式变成英文（见 [自动化 · App Intents](automation.md#app-intents)）。
+- build 号必须单调递增，Sparkle 按它比较版本。

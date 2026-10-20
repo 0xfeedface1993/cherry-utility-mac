@@ -38,4 +38,4 @@
 
 内置定义在 [`App/Resources/FirmwareDefinitions/`](../../App/Resources/FirmwareDefinitions/)。`MX_PIXIU75_WIRELESS_0117.cherryfw` 的所有补丁位置都已与官方 0117 镜像逐字节核对；其中「F 区固定」加「去掉 Ctrl+Fn」两项一起生成的镜像（CRC `0x46F8C57A`）已在真机写入并读回。各项功能的行为仍标为实验性。
 
-格式细节、PIXIU 75 0117 的固件知识和验证记录见 [工程记录 · 自定义固件](../records/自定义固件.md)。
+定义文件的完整格式、PIXIU 75 0117 的固件知识和验证方式见 [自定义固件：实现说明](../dev/custom-firmware.md)。

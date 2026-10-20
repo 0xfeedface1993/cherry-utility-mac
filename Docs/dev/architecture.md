@@ -34,7 +34,20 @@ App/                  组合根：创建适配器交给 CoreServices，通过 wi
                       Resources/FirmwareDefinitions：内置的 .cherryfw 固件定义
 ```
 
-`ArchitectureTests` 守住依赖方向，例如命令行这一栈（CherryControl / CherryControlService / CherryCLI）不链接 TCA 和 SwiftUI。
+## 架构约束
+
+依赖方向由 SwiftPM target 保证，其余规则由 `CherryCoreTests/ArchitectureTests` 检查：
+
+| 测试 | 约束 |
+|---|---|
+| `coreDependsOnlyOnSystemLibraries` | CherryCore 只依赖 Foundation、CryptoKit、Synchronization |
+| `coreHoldsNoAdapterOrPresentationDetails` | Core 不含 IOKit、OSLog、`URLError` 等适配器细节，也不含界面文案（`LocalizedError`、`errorDescription`、格式化日期、图标名） |
+| `productionAdaptersHoldNoSimulation` | 模拟键盘、合成升级包只在 CherrySimulation，不随生产适配器发布 |
+| `commandLineStackStaysFreeOfUserInterfaceFrameworks` | CherryControl / CherryControlService / CherryCLI 不链接 TCA 和 SwiftUI |
+| `domainTypesCarryNoObservability` | 领域类型不带诊断字段（按键事件的诊断时间戳由外层 `Traced<KeyEvent>` 携带） |
+| `calleesNeverDeclareAnOrigin` | 诊断来源（origin）只由驱动侧声明，Core 服务与适配器只继承 |
+
+另外：Features 的依赖客户端只声明接口、不含 `liveValue`，全部由组合根注入；reducer 不直接执行副作用（观测调用也在 effect 里）；时间通过注入的时钟取得，保留期、超时类逻辑可以写确定性测试。
 
 ## 并发模型
 
@@ -64,11 +77,12 @@ cherry mcp ─────┘─(App 不在时，进程内直连)── LocalCon
 - **授权**：设置页的「允许命令行控制」「允许 MCP 控制」两个开关存在共享偏好域里，每次请求前读取；调用结束后先写共享的调用记录再回复。
 - **不开放固件**：自动化入口只有读取与配置，固件刷写和自定义固件只在 GUI 中由用户确认。
 
-调研结论、各阶段的设计决策、并发决策记录与验证结果见 [自动化接入方案](../records/自动化接入方案.md)；协议细节见 [控制协议 v1](control-protocol.md)。
+设计细节与取舍见 [自动化：设计与实现](automation.md)，协议细节见 [控制协议 v1](control-protocol.md)。
 
-## 相关记录
+## 相关文档
 
-- [六边形架构与单元测试评审](../records/六边形架构与单元测试评审-20261011.md)
-- [设备连接与配置队列](../records/设备连接与配置队列.md)
-- [多型号兼容](../records/多型号兼容.md)
-- [自定义固件](../records/自定义固件.md)
+- [自动化：设计与实现](automation.md)
+- [设备连接与配置写入队列](configuration-queue.md)
+- [诊断日志与 Profile 工具](diagnostics.md)
+- [多型号兼容](multi-model.md)
+- [自定义固件：实现说明](custom-firmware.md)

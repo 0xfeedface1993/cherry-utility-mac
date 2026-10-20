@@ -52,7 +52,7 @@ shasum -a 256 -c CherryUtility-1.2.1.dmg.sha256
 | 无背光键盘（MX BOARD 3.0S / 2.0S / 1.0 NBL、G80-3000S NBL 等） | 切换配置档、按键测试 | 按官方驱动适配 |
 | 其他 CHERRY 设备 | USB / HID 基本信息 | 只读 |
 
-「按官方驱动适配」的型号来自官方 CHERRY Utility 2.3.28.7 的设备表（共 60 个 PID），与 PIXIU 75 使用同一套私有协议，可写的字段严格限定为官方驱动对该型号会写的字节，但没有在真机上验证。应用内的固件刷写目前只支持 PIXIU 75 系列，其他型号请使用官方升级程序。证据与完整型号表见 [多型号兼容](../records/多型号兼容.md)。
+「按官方驱动适配」的型号来自官方 CHERRY Utility 2.3.28.7 的设备表（共 60 个 PID），与 PIXIU 75 使用同一套私有协议，可写的字段严格限定为官方驱动对该型号会写的字节，但没有在真机上验证。应用内的固件刷写目前只支持 PIXIU 75 系列，其他型号请使用官方升级程序。证据与完整型号表见 [多型号兼容](../dev/multi-model.md)。
 
 如果你的型号工作正常（或不正常），欢迎在 [GitHub Issues](https://github.com/0xfeedface1993/cherry-utility-mac/issues) 反馈。
 

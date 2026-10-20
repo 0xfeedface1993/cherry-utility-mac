@@ -7,7 +7,7 @@ import Foundation
 // - the visible rows of `DefaultData/default_light.json` for the DeviceIndex,
 // - the catalog `Desc` prefix and the format of the official updater.
 // Entries with product ID 0 in the driver (DeviceIndex 27…33) cannot be matched and are left out; mice and mouse pads
-// are not keyboards. Evidence and the per-PID write ranges are in Docs/records/多型号兼容.md.
+// are not keyboards. Evidence and the per-PID write ranges are in Docs/dev/multi-model.md.
 extension KeyboardModel {
     public static let pixiu75 = KeyboardModel(
         name: "MX PIXIU 75", productID: 0x01E2, deviceIndex: 51, isWireless: true, catalogName: "MX_PIXIU75_WIRELESS",

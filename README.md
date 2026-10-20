@@ -88,7 +88,7 @@ claude mcp add --scope user cherry -- /Applications/CherryUtility.app/Contents/M
 | [MCP](Docs/guide/mcp.md) | [HID 协议备忘](Docs/dev/hid-protocol.md) |
 | [自定义固件](Docs/guide/custom-firmware.md) | [发布与官网](Docs/dev/release.md) |
 
-设计决策、验证记录与各阶段台账在 [`Docs/records/`](Docs/README.md#工程记录)。
+更多开发者文档（自动化设计、多型号兼容、配置写入队列、诊断日志、测试与性能）见 [文档索引](Docs/README.md)。
 
 ## 从源码构建
 

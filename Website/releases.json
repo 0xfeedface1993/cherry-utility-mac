@@ -1,6 +1,7 @@
 {
   "product": "CHERRY Utility",
   "baseURL": "https://odeployer.online/cherry-utility/",
+  "repository": "https://github.com/0xfeedface1993/cherry-utility-mac",
   "minimumSystemVersion": "15.0",
   "releases": [
     {

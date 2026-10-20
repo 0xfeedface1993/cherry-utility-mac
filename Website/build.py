@@ -4,7 +4,7 @@
     python3 Website/build.py [--artifacts DIR] [--out DIR]
     python3 Website/build.py --design OUT.html     # self-contained 1440 + 390 px capture for Figma
 
-releases.json is the single source of truth: the release script appends an entry (version, build, DMG name,
+releases.json is the single source of truth (repository is the GitHub URL the page links to): the release script appends an entry (version, build, DMG name,
 length, SHA-256, EdDSA signature). Until the newest entry has a DMG the site renders in "pending" mode — the
 download buttons are disabled and appcast.xml lists no items, so no installed app is offered an update.
 
@@ -38,6 +38,9 @@ def load_manifest():
     base = data["baseURL"]
     if not base.startswith("https://") or not base.endswith("/"):
         sys.exit("baseURL must be an https URL ending in /")
+    # 官网的 GitHub 入口（导航、自动化文档链接、开源一节、页脚）都由它生成。
+    if not re.fullmatch(r"https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+", data.get("repository", "")):
+        sys.exit("repository must be https://github.com/<owner>/<repo> without a trailing slash")
     for r in data["releases"]:
         if r.get("dmg") and not SAFE_NAME.match(r["dmg"]):
             sys.exit(f"invalid DMG name: {r['dmg']}")
@@ -95,6 +98,9 @@ def render_index(data, design=False):
     # Hero eyebrow: the first public release is announced as such, later ones as the latest version.
     values["HEADLINE"] = "即将发布" if not latest and not design else ("首个公开版本" if len(live) <= 1 else "最新版本")
     values["MIN_OS"] = data["minimumSystemVersion"]
+    values["GITHUB"] = data["repository"]
+    values["DOCS"] = data["repository"] + "/blob/main/Docs"
+    values["GITHUB_OWNER"], values["GITHUB_REPO"] = data["repository"].rsplit("/", 2)[1:]
     values["CHANGELOG"] = changelog_html(shown)
     # 命令行入口只在有带 zip 的已发布版本时出现，否则连同其中的占位符一起删掉。
     cli = latest_cli(data)

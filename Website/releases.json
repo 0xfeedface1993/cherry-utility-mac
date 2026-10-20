@@ -4,6 +4,24 @@
   "minimumSystemVersion": "15.0",
   "releases": [
     {
+      "version": "1.2.1",
+      "notes": [
+        "菜单栏面板在写入设置时不再改变高度，切换灯效和配置档更流畅，高刷新率显示器上的掉帧明显减少。"
+      ],
+      "build": 5,
+      "date": "2026-10-20",
+      "published": "2026-10-19T23:52:48+00:00",
+      "dmg": "CherryUtility-1.2.1.dmg",
+      "length": 14562273,
+      "sha256": "a3ba7b7f953c42ba3303c2808eb4ecf351efa24485dae00b41dab112601fbfda",
+      "edSignature": "zzkAebBFPo/JpvFb8+6dXOkCcUHuqw805V8NjvRS6znAaKsnlsc+Nv6+TLu14rnvinnacX5XB9PnrA2VT/T4BA==",
+      "cliZip": "cherry-1.2.1.zip",
+      "cliLength": 4266506,
+      "cliSha256": "5e12b753ec4c9515166a515cdc37927f438b7c0c73121b98698ac2f5285c544c",
+      "minimumSystemVersion": "15.0",
+      "notarized": true
+    },
+    {
       "version": "1.2.0",
       "notes": [
         "快捷指令与 Spotlight：新增 10 个动作（读取状态与电量、切换配置档、设置灯效 / 亮度 / 速度 / 颜色 / 休眠、载入预设），可以放进快捷指令自动化，也能在 Spotlight 里直接运行。",

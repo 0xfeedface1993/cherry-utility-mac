@@ -122,7 +122,7 @@ public struct KeyboardSummary: Equatable, Sendable, Identifiable {
 ///
 /// Every keyboard uses the same private configuration protocol (UsagePage 0xFF1C, report #4); models differ in
 /// which profile bytes the driver writes, their lighting-effect table and how their firmware is updated.
-/// The catalog lives in `KeyboardModel+Catalog.swift`; see `Docs/多型号兼容.md` for the evidence.
+/// The catalog lives in `KeyboardModel+Catalog.swift`; see `Docs/records/多型号兼容.md` for the evidence.
 public struct KeyboardModel: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case keyboard

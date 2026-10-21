@@ -44,7 +44,14 @@ CHERRY 官方驱动只有 Windows 版。CHERRY Utility 是一个原生 macOS App
 
 ## 下载
 
-从 [官网](https://odeployer.online/cherry-utility/) 下载 DMG（macOS 15+，Apple 芯片与 Intel 通用，Developer ID 签名并经 Apple 公证）。App 内置 Sparkle，会自动检查更新。命令行工具 `cherry` 也可以在官网单独下载。
+从 [官网](https://odeployer.online/cherry-utility/) 或 [GitHub Releases](https://github.com/0xfeedface1993/cherry-utility-mac/releases) 下载 DMG（macOS 15+，Apple 芯片与 Intel 通用，Developer ID 签名并经 Apple 公证）。App 内置 Sparkle，会自动检查更新。命令行工具 `cherry` 也可以单独下载。
+
+也可以用 Homebrew：
+
+```bash
+brew install --cask 0xfeedface1993/tap/cherry-utility   # App
+brew install --cask 0xfeedface1993/tap/cherry-cli       # 只装命令行 cherry
+```
 
 安装与第一次使用见 [安装与上手](Docs/guide/getting-started.md)。
 

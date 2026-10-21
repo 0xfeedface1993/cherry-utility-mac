@@ -10,7 +10,7 @@
 # Output: .release/<version>-<build>/ with the archive, the stapled DMG, its .sha256 and the Sparkle signature.
 # 另有独立命令行 cherry-<version>.zip（只含通用二进制 cherry）及其 .sha256，与 DMG 分别提交公证；命令行二进制不能
 # staple，公证记录在 Apple 服务器端，用 spctl --assess --type open（主签名）与 codesign --check-notarization 核对。按 Packaging/homebrew/ 的模板渲染
-# cherry-utility.rb 与 cherry-cli.rb（版本与 sha256 已填好），可用 Scripts/verify-cask.sh 校验。
+# cherry-utility.rb 与 cherry-cli.rb（版本与 sha256 已填好），可用 Scripts/verify-cask.sh 校验，Scripts/publish-homebrew.sh 发布到 tap。
 # CHERRY_RELEASE_OUTPUT overrides that folder; CHERRY_DERIVED_DATA reuses an earlier run's build cache
 # (default <output>/DerivedData, a clean universal build that takes several minutes).
 # --resume keeps the DMG of an interrupted run and continues at notarization; an accepted submission recorded in
@@ -290,3 +290,4 @@ print "命令行：$cli_zip"
 print "SHA-256 $cli_sha256 · $cli_length 字节"
 print "核对 cask：Scripts/verify-cask.sh --release ${dmg#$repo/} ${cli_zip#$repo/}"
 print "发布：Scripts/deploy-website.sh --artifacts ${out#$repo/}"
+print "GitHub Release v$version 附上 DMG、zip 与 .sha256 后：Scripts/publish-homebrew.sh ${out#$repo/}"

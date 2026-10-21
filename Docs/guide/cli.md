@@ -34,7 +34,11 @@ ln -s /Applications/CherryUtility.app/Contents/MacOS/cherry ~/.local/bin/cherry
 
 **Homebrew**
 
-`cherry-cli`（只装命令行）与 `cherry-utility`（只装 App）两个 cask 的模板在 [`Packaging/homebrew/`](../../Packaging/homebrew/)，还没有进入 homebrew-cask，暂时不能 `brew install`。
+```bash
+brew install --cask 0xfeedface1993/tap/cherry-cli
+```
+
+`cherry-cli` 只装命令行（`cherry` 链接到 Homebrew 的 bin 目录），不依赖 App；App 是另一个 cask `0xfeedface1993/tap/cherry-utility`，两个可以只装其中一个。升级用 `brew upgrade --cask cherry-cli`。tap 是 [0xfeedface1993/homebrew-tap](https://github.com/0xfeedface1993/homebrew-tap)，下载的是 GitHub Release 的附件，与官网同一份文件。
 
 装好后确认一下：
 

@@ -98,8 +98,8 @@ finish() {
     print "\n注意："
     for item in "${notes[@]}"; do print "  - $item"; done
   fi
-  print "\n发布后才能核对（官网已上线 ${version:-<版本>}，releases/latest.json 带 cli 段）：把渲染好的 cask 放进 tap 或"
-  print "homebrew-cask 的 PR 分支后跑 brew audit --cask --new 与 brew livecheck --cask（下载、主页、livecheck、最低系统均需联网）。"
+  print "\n发布后才能核对（GitHub Release v${version:-<版本>} 已附上 DMG 与 zip）：Scripts/publish-homebrew.sh 推送 tap 前"
+  print "会联网跑 brew audit --cask --online 与 brew livecheck --cask（下载、主页、livecheck、最低系统）。"
   (( ${#failed} == 0 ))
 }
 
@@ -236,12 +236,12 @@ cp "$work/casks/cherry-utility.rb" "$work/casks/cherry-cli.rb" "$tap_dir/Casks/"
 print "  临时 tap $tap"
 check "brew style（正式 url 的 cask）" brew style --cask "$tap/cherry-utility" "$tap/cherry-cli"
 
-# 下载地址改成 file:// 指向本地副本；文件名仍按 #{version} 拼出，所以副本用正式文件名。
+# 下载地址（GitHub Release 附件）改成 file:// 指向本地副本；文件名仍按 #{version} 拼出，所以副本用正式文件名。
 cp -c "$dmg" "$work/downloads/CherryUtility-$version.dmg" 2>/dev/null || cp "$dmg" "$work/downloads/CherryUtility-$version.dmg"
 cp -c "$zip" "$work/downloads/cherry-$version.zip" 2>/dev/null || cp "$zip" "$work/downloads/cherry-$version.zip"
 local_base="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).as_uri())' "$work/downloads")/"
 for cask in cherry-utility cherry-cli; do
-  sed "s|url \"https://odeployer.online/cherry-utility/downloads/|url \"$local_base|" "$work/casks/$cask.rb" > "$tap_dir/Casks/$cask.rb"
+  sed "s|url \"https://github.com/[^\"]*/releases/download/v#{version}/|url \"$local_base|" "$work/casks/$cask.rb" > "$tap_dir/Casks/$cask.rb"
   grep -q "url \"$local_base" "$tap_dir/Casks/$cask.rb" || fail "$cask.rb 的 url 没能换成 file://"
 done
 check "brew audit --cask --strict（file:// 指向本地产物，离线检查）" brew audit --cask --strict "$tap/cherry-utility" "$tap/cherry-cli"

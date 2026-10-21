@@ -9,9 +9,15 @@ CHERRY Utility for Mac 是给 CHERRY 键盘用的非官方 macOS 工具：官方
 
 ## 安装
 
-1. 在 [官网](https://odeployer.online/cherry-utility/) 下载 DMG。
+1. 在 [官网](https://odeployer.online/cherry-utility/) 或 [GitHub Releases](https://github.com/0xfeedface1993/cherry-utility-mac/releases) 下载 DMG。
 2. 打开 DMG，把 CHERRY Utility 拖进「应用程序」。
 3. 从「应用程序」打开它。App 经过 Developer ID 签名和 Apple 公证，不需要右键打开或修改安全设置。
+
+也可以用 Homebrew 安装（装进「应用程序」，之后由 App 自己的 Sparkle 更新）：
+
+```bash
+brew install --cask 0xfeedface1993/tap/cherry-utility
+```
 
 想核对下载文件，可以对照官网提供的 `.sha256`：
 

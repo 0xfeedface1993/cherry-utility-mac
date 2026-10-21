@@ -29,7 +29,12 @@
    Scripts/deploy-website.sh --artifacts .release/<版本>-<build>
    ```
 
-6. 在 GitHub 上为这个版本打 tag 并创建 Release（说明与官网更新日志一致，下载链接指向官网）。
+6. 在 GitHub 上为这个版本打 tag `v<版本>` 并创建 Release（说明与官网更新日志一致），附上 `CherryUtility-<版本>.dmg`、`cherry-<版本>.zip` 及两个 `.sha256`。Homebrew cask 从这里下载，所以文件名和内容都不能改。
+7. 发布 Homebrew cask 到 tap（先核对 Release 附件的 digest，再联网审核，最后推送）：
+
+   ```bash
+   Scripts/publish-homebrew.sh .release/<版本>-<build>
+   ```
 
 ## 脚本
 
@@ -39,6 +44,7 @@
 | `Scripts/make-dmg.sh <App> <输出.dmg>` | 用固定版本的 dmgbuild 制作 DMG，不打开 Finder。背景图由 `Design/icons/DMGBackground.svg` 经 `swift Scripts/render-dmg-background.swift` 生成 |
 | `Scripts/verify-update.sh <旧.dmg> <新.dmg>` | 把旧版复制到临时目录，用只含新版的本地 appcast 让 `sparkle-cli` 完成检查、下载、EdDSA 校验与安装，再核对版本、签名和 Team；`--public <旧.dmg>` 只读询问公开 appcast。结束时还原 Sparkle 写入的偏好与缓存 |
 | `Scripts/verify-cask.sh` | 渲染 `cherry-utility` / `cherry-cli` 两个 cask，在临时 tap 里跑 `brew style` / `brew audit`，核对二进制、签名、公证与 Gatekeeper；不安装任何东西 |
+| `Scripts/publish-homebrew.sh [--dry-run] DIR` | 核对 GitHub Release `v<版本>` 已发布、两个附件的 digest 与本地 `.sha256` 一致、目录里的 cask 与模板渲染结果一致；在临时 tap 里联网跑 `brew style`、`brew audit --cask --strict --online` 与 `brew livecheck`，然后提交并推送到 [0xfeedface1993/homebrew-tap](https://github.com/0xfeedface1993/homebrew-tap)。本地克隆在 `.release/tools/homebrew-tap`；`--dry-run` 不提交 |
 | `Scripts/deploy-website.sh [--artifacts DIR]` | 由 `Website/releases.json` 生成站点，复制到部署根 `releases/<id>/`，沿用上一版的下载文件，原子切换 `current` |
 | `Scripts/rollback-website.sh` | 交换 `current` / `previous`，回到上一次部署 |
 
@@ -57,7 +63,16 @@
 
 ## Homebrew
 
-`Packaging/homebrew/` 有两个相互独立的 cask 模板：`cherry-utility`（只装 App，`auto_updates true`）与 `cherry-cli`（只装命令行，livecheck 读 `releases/latest.json` 的 `cli` 段）。`release.sh` 按版本和 SHA-256 渲染到 `.release/<版本>-<build>/`。两者还没有提交到 homebrew-cask。
+`Packaging/homebrew/` 有两个相互独立的 cask 模板：`cherry-utility`（只装 App，`auto_updates true`）与 `cherry-cli`（只装命令行）。下载地址是 GitHub Release `v<版本>` 的附件，livecheck 读最新的 GitHub Release。`release.sh` 按版本和 SHA-256 渲染到 `.release/<版本>-<build>/`，`publish-homebrew.sh` 推到自建 tap [0xfeedface1993/homebrew-tap](https://github.com/0xfeedface1993/homebrew-tap)：
+
+```bash
+brew install --cask 0xfeedface1993/tap/cherry-utility
+brew install --cask 0xfeedface1993/tap/cherry-cli
+```
+
+tap 的 CI 在每次推送时跑 `brew style`、联网 `brew audit`、`brew livecheck`，并在 macOS runner 上真的安装、卸载一遍。tap 里的 cask 不要手改，改模板后随下一个版本发布。
+
+**为什么不进官方 homebrew-cask**：`brew audit --cask --new` 要求 GitHub 仓库建立满 30 天，作者自己提交时还要至少 90 fork、90 watcher 或 225 star（他人提交是 30 / 30 / 75），不满足时审核报 `GitHub repository not notable enough`。达到门槛后，把同样的两个 cask（去掉顶格说明）提交到 Homebrew/homebrew-cask，并在 tap 里用 `tap_migrations.json` 指向官方。
 
 ## 发布配置
 

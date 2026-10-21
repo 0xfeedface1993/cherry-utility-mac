@@ -10,7 +10,7 @@ download buttons are disabled and appcast.xml lists no items, so no installed ap
 
 每个版本可选附带独立命令行 cherry 的 zip：cliZip（文件名）、cliLength（字节数）、cliSha256，三项同时出现。
 带 zip 的最新已发布版本会在下载按钮旁显示「下载命令行工具 cherry」（模板里 <!--CLI-->…<!--/CLI--> 包住的部分），
-并写进 releases/latest.json 的 cli 段（Homebrew cask cherry-cli 的 livecheck 读它）；没有时这些内容都不出现。
+并写进 releases/latest.json 的 cli 段；没有时这些内容都不出现。（Homebrew cask 的 livecheck 读 GitHub Release，不读这里。）
 """
 import argparse
 import base64

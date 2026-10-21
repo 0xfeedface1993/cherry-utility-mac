@@ -115,7 +115,7 @@ App 与直连的 `cherry` 可能同时使用同一把键盘。进程内的排队
 ## 分发
 
 - `Scripts/release.sh` 另打 `cherry-<版本>.zip`（通用二进制、Developer ID 签名、hardened runtime），与 DMG 分别公证。命令行二进制不能 staple，用 `spctl --type open --context context:primary-signature` 与 `codesign --check-notarization` 核对。
-- 两个相互独立的 cask（模板在 `Packaging/homebrew/`）：`cherry-utility` 只装 App（不带 `binary`，避免与独立 CLI 争 `cherry` 这个名字），`cherry-cli` 只装命令行（livecheck 读 `releases/latest.json` 的 `cli` 段）。官方 homebrew-cask 对自荐、发布不久的软件有知名度要求，也可能要求名字带 `-unofficial`；被拒时同样的 cask 可以放进自建 tap。
+- 两个相互独立的 cask（模板在 `Packaging/homebrew/`）：`cherry-utility` 只装 App（不带 `binary`，避免与独立 CLI 争 `cherry` 这个名字），`cherry-cli` 只装命令行。两者从 GitHub Release 附件下载，发布在自建 tap `0xfeedface1993/homebrew-tap`（`Scripts/publish-homebrew.sh`）。官方 homebrew-cask 对自荐、发布不久的软件有知名度要求（见 [发布与官网](release.md#homebrew)），也可能要求名字带 `-unofficial`。
 - 独立 CLI 与 App 的版本可能不同：协议 v1 向后兼容、未知字段一律忽略，`cherry doctor` 显示双方版本。
 
 ## 测试

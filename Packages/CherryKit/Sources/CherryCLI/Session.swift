@@ -218,7 +218,7 @@ struct Session {
             throw .appUnavailable("启动 CHERRY Utility 超时")
         }
         guard open.terminationStatus == 0 else {
-            throw .appUnavailable("找不到 CHERRY Utility。可以从 https://odeployer.online/cherry-utility/ 下载，或者 brew install --cask cherry-utility")
+            throw .appUnavailable("找不到 CHERRY Utility。可以从 https://odeployer.online/cherry-utility/ 下载，或者 brew install --cask 0xfeedface1993/tap/cherry-utility")
         }
     }
 
